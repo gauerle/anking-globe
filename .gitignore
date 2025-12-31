@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+functions/node_modules/
+
+# Environment variables - NEVER COMMIT THESE
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Database and data files
+server/*.db
+server/tokens.json
+server/users.json
+server/cards.json
+server/admins.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
