@@ -1,6 +1,6 @@
-const functions = require('firebase-functions');
+const { onRequest } = require("firebase-functions/v2/https");
+const express = require("express");
 const admin = require('firebase-admin');
-const express = require('express');
 const cors = require('cors');
 
 admin.initializeApp();
@@ -13,7 +13,7 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://YOUR-USERNAME.github.io', // TODO: Replace with your GitHub username
+  'https://gauerle.github.io', // TODO: Replace with your GitHub username
 ];
 
 app.use(cors({ 
@@ -368,4 +368,4 @@ app.get('/health', (req, res) => {
 });
 
 // Export the Express app as a Firebase Cloud Function
-exports.api = functions.https.onRequest(app);
+exports.api = onRequest(app);

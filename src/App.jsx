@@ -154,10 +154,13 @@ function App() {
         <ControlsPanel
           cards={cards}
           selectedCards={selectedCards}
+          autoRotate={autoRotate}
+          onAutoRotateChange={setAutoRotate}
           onToggleCard={toggleCardPopup}
           onOpenAll={openAllCards}
           onCloseAll={closeAllCards}
-          onOpenAdmin={() => setCurrentPage('admin')}
+          onManageClick={() => setCurrentPage('admin')}
+          isEmbedMode={isEmbedMode}
         />
       )}
 

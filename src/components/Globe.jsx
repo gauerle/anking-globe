@@ -5,15 +5,19 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const GLOBE_RADIUS = 100;
 const LAND_ELEVATION = 3.0;
 const MARKER_SIZE = 7;
+const MARKER_OFFSET = 0.5;
+const RAY_LENGTH = 25;
 const SKYBOX_RADIUS = 1500;
-const HOVER_DISTANCE_3D = 5;
+const HOVER_DISTANCE_3D = 6;
 
 const COLORS = {
   water: { r: 17, g: 22, b: 41 },
   land: { r: 54, g: 63, b: 84 },
 };
 
-function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibilityChange, onInteraction, focusCardId }) {
+const DEFAULT_STAR_COLOR = '#9333ea';
+
+function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibilityChange, onInteraction, focusCardId, visibleGroups }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -26,7 +30,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const frameCount = useRef(0);
   const visibilityState = useRef({});
   const markerOpacity = useRef({});
-  const starTextureRef = useRef(null);
+  const starTexturesRef = useRef({});
+  const glowTextureRef = useRef(null);
   const selectedCardsRef = useRef(selectedCards);
   const onMarkerVisibilityChangeRef = useRef(onMarkerVisibilityChange);
   const onInteractionRef = useRef(onInteraction);
@@ -36,15 +41,26 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const lastHoveredId = useRef(null);
   const pendingHoverUpdate = useRef(null);
   
+  // Track ray opacity for smooth transitions
+  const rayOpacityRef = useRef({});
+  
   const rayOrigin = useRef(new THREE.Vector3());
   const rayDirection = useRef(new THREE.Vector3());
   const toMarker = useRef(new THREE.Vector3());
   const tempVec = useRef(new THREE.Vector3());
   const mouseNDC = useRef(new THREE.Vector2());
 
-  useEffect(() => { selectedCardsRef.current = selectedCards; }, [selectedCards]);
-  useEffect(() => { onMarkerVisibilityChangeRef.current = onMarkerVisibilityChange; }, [onMarkerVisibilityChange]);
-  useEffect(() => { onInteractionRef.current = onInteraction; }, [onInteraction]);
+  useEffect(() => {
+    selectedCardsRef.current = selectedCards;
+  }, [selectedCards]);
+
+  useEffect(() => {
+    onMarkerVisibilityChangeRef.current = onMarkerVisibilityChange;
+  }, [onMarkerVisibilityChange]);
+
+  useEffect(() => {
+    onInteractionRef.current = onInteraction;
+  }, [onInteraction]);
 
   const createStarfieldTexture = useCallback(() => {
     const size = 4096;
@@ -52,6 +68,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     canvas.width = size;
     canvas.height = size / 2;
     const ctx = canvas.getContext('2d');
+    
     ctx.fillStyle = '#000003';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
@@ -60,6 +77,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       const y = Math.random() * canvas.height;
       const radius = Math.random() * 1.2 + 0.3;
       const brightness = Math.random();
+      
       let r, g, b;
       const colorVariant = Math.random();
       if (colorVariant < 0.7) {
@@ -73,11 +91,13 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         g = 210 + Math.random() * 20;
         b = 160 + Math.random() * 40;
       }
+      
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${(0.2 + brightness * 0.4) * 0.6})`;
       ctx.fill();
     }
+    
     return new THREE.CanvasTexture(canvas);
   }, []);
 
@@ -87,6 +107,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     canvas.width = size;
     canvas.height = size / 2;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    
     ctx.drawImage(specularImg, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
@@ -108,8 +129,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     for (let i = 0; i < data.length; i += 4) {
       const brightness = data[i];
       const isWater = brightness > 100;
+      
       dispData[i] = dispData[i + 1] = dispData[i + 2] = isWater ? 0 : 255;
       dispData[i + 3] = 255;
+
       if (isWater) {
         colorData[i] = COLORS.water.r;
         colorData[i + 1] = COLORS.water.g;
@@ -138,74 +161,217 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     };
   }, []);
 
-  const loadStarTexture = useCallback(() => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, 128, 128);
-        resolve(new THREE.CanvasTexture(canvas));
-      };
-      img.onerror = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#9333ea';
-        ctx.beginPath();
-        for (let i = 0; i < 10; i++) {
-          const r = i % 2 === 0 ? 60 : 25;
-          const angle = (i * Math.PI) / 5 - Math.PI / 2;
-          const x = 64 + Math.cos(angle) * r;
-          const y = 64 + Math.sin(angle) * r;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        }
-        ctx.closePath();
-        ctx.fill();
-        resolve(new THREE.CanvasTexture(canvas));
-      };
-      const baseUrl = import.meta.env.BASE_URL || '/';
-      img.src = baseUrl + 'star.svg';
-    });
-  }, []);
-
-  const createGlowTexture = useCallback(() => {
+  const createStarTexture = useCallback((color = DEFAULT_STAR_COLOR) => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
     canvas.height = 128;
     const ctx = canvas.getContext('2d');
-    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    gradient.addColorStop(0, 'rgba(147, 51, 234, 0.8)');
-    gradient.addColorStop(0.3, 'rgba(147, 51, 234, 0.4)');
-    gradient.addColorStop(0.6, 'rgba(147, 51, 234, 0.15)');
-    gradient.addColorStop(1, 'rgba(147, 51, 234, 0)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 128, 128);
+    
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? 60 : 25;
+      const angle = (i * Math.PI) / 5 - Math.PI / 2;
+      const x = 64 + Math.cos(angle) * r;
+      const y = 64 + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    
     return new THREE.CanvasTexture(canvas);
   }, []);
+
+  const loadStarTexture = useCallback((color = DEFAULT_STAR_COLOR) => {
+    return new Promise((resolve) => {
+      if (color === DEFAULT_STAR_COLOR) {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, 128, 128);
+          resolve(new THREE.CanvasTexture(canvas));
+        };
+        img.onerror = () => {
+          resolve(createStarTexture(color));
+        };
+        const baseUrl = import.meta.env.BASE_URL || '/';
+        img.src = baseUrl + 'star.svg';
+      } else {
+        resolve(createStarTexture(color));
+      }
+    });
+  }, [createStarTexture]);
+
+  const createGlowTexture = useCallback((color = DEFAULT_STAR_COLOR) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    
+    let r = 147, g = 51, b = 234;
+    if (color.startsWith('#')) {
+      const hex = color.slice(1);
+      r = parseInt(hex.slice(0, 2), 16);
+      g = parseInt(hex.slice(2, 4), 16);
+      b = parseInt(hex.slice(4, 6), 16);
+    }
+    
+    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0.5)`);
+    gradient.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, 0.2)`);
+    gradient.addColorStop(0.6, `rgba(${r}, ${g}, ${b}, 0.05)`);
+    gradient.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+    
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 128, 128);
+    
+    return new THREE.CanvasTexture(canvas);
+  }, []);
+
+  const parseColor = useCallback((color) => {
+    let r = 147, g = 51, b = 234;
+    if (color.startsWith('#')) {
+      const hex = color.slice(1);
+      r = parseInt(hex.slice(0, 2), 16);
+      g = parseInt(hex.slice(2, 4), 16);
+      b = parseInt(hex.slice(4, 6), 16);
+    }
+    return { r, g, b };
+  }, []);
+
+  // Create star-shaped beam geometry that matches the star exactly
+  const createStarBeamGeometry = useCallback(() => {
+    const segments = 20;
+    const points = 10; // 5-pointed star = 10 vertices
+    
+    // Match the star size exactly
+    const starOuterRadius = MARKER_SIZE / 2;
+    const starInnerRadius = MARKER_SIZE / 2 * 0.42;
+    
+    const positions = [];
+    const uvs = [];
+    const indices = [];
+    
+    for (let seg = 0; seg <= segments; seg++) {
+      const t = seg / segments;
+      const z = t * RAY_LENGTH;
+      
+      // Scale expands as ray extends into space
+      const scale = 1 + t * 1.2;
+      
+      for (let i = 0; i < points; i++) {
+        const isOuter = i % 2 === 0;
+        const radius = (isOuter ? starOuterRadius : starInnerRadius) * scale;
+        const angle = (i * Math.PI) / 5 - Math.PI / 2;
+        
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
+        
+        positions.push(x, y, z);
+        uvs.push(i / points, t);
+      }
+      
+      // Center point
+      positions.push(0, 0, z);
+      uvs.push(0.5, t);
+    }
+    
+    const vertsPerRing = points + 1;
+    
+    for (let seg = 0; seg < segments; seg++) {
+      const currBase = seg * vertsPerRing;
+      const nextBase = (seg + 1) * vertsPerRing;
+      
+      for (let i = 0; i < points; i++) {
+        const curr = currBase + i;
+        const next = currBase + ((i + 1) % points);
+        const currNext = nextBase + i;
+        const nextNext = nextBase + ((i + 1) % points);
+        
+        indices.push(curr, next, currNext);
+        indices.push(next, nextNext, currNext);
+      }
+    }
+    
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    
+    return geometry;
+  }, []);
+
+  const createLightBeam = useCallback((color = DEFAULT_STAR_COLOR) => {
+    const { r, g, b } = parseColor(color);
+    
+    const geometry = createStarBeamGeometry();
+    
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        color: { value: new THREE.Color(r / 255, g / 255, b / 255) },
+        opacity: { value: 0.35 },
+        rayLength: { value: RAY_LENGTH }
+      },
+      vertexShader: `
+        varying float vDistance;
+        uniform float rayLength;
+        
+        void main() {
+          vDistance = position.z / rayLength;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 color;
+        uniform float opacity;
+        varying float vDistance;
+        
+        void main() {
+          float fade = 1.0 - vDistance;
+          fade = fade * fade * fade;
+          float alpha = fade * opacity;
+          gl_FragColor = vec4(color, alpha);
+        }
+      `,
+      transparent: true,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    
+    const beam = new THREE.Mesh(geometry, material);
+    beam.position.z = 0.3;
+    beam.userData = { type: 'beam' };
+    
+    return beam;
+  }, [parseColor, createStarBeamGeometry]);
 
   const createStarMarker = useCallback((card, starTexture, glowTexture, existingMarkers = []) => {
     const group = new THREE.Group();
     
+    const starContainer = new THREE.Group();
+    starContainer.userData = { type: 'starContainer' };
+    
     const glowMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(MARKER_SIZE * 3.5, MARKER_SIZE * 3.5),
+      new THREE.PlaneGeometry(MARKER_SIZE * 2.5, MARKER_SIZE * 2.5),
       new THREE.MeshBasicMaterial({
         map: glowTexture,
         transparent: true,
-        opacity: 0.6,
+        opacity: 0.3,
         side: THREE.DoubleSide,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
       })
     );
-    glowMesh.position.z = -0.2;
+    glowMesh.position.z = 0.1;
     glowMesh.userData = { type: 'glow' };
     
-    const mesh = new THREE.Mesh(
+    const starMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(MARKER_SIZE, MARKER_SIZE),
       new THREE.MeshBasicMaterial({
         map: starTexture,
@@ -215,13 +381,22 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         depthWrite: false,
       })
     );
-    mesh.userData = { type: 'star' };
+    starMesh.position.z = 0.2;
+    starMesh.userData = { type: 'star' };
     
-    group.add(glowMesh);
-    group.add(mesh);
+    starContainer.add(glowMesh);
+    starContainer.add(starMesh);
+    group.add(starContainer);
+    
+    const color = card.starColor || DEFAULT_STAR_COLOR;
+    const beam = createLightBeam(color);
+    group.add(beam);
+    
+    rayOpacityRef.current[card.id] = 1;
     
     let lat = card.lat;
     let lng = card.lng;
+    
     const MIN_DISTANCE = 8;
     const OFFSET_AMOUNT = 2.5;
     let attempts = 0;
@@ -230,7 +405,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     while (attempts < maxAttempts) {
       const phi = (90 - lat) * (Math.PI / 180);
       const theta = (lng + 180) * (Math.PI / 180);
-      const r = GLOBE_RADIUS + LAND_ELEVATION + 2;
+      const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
       const testPos = new THREE.Vector3(
         -r * Math.sin(phi) * Math.cos(theta),
         r * Math.cos(phi),
@@ -261,7 +436,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     if (attempts >= maxAttempts) {
       const phi = (90 - card.lat) * (Math.PI / 180);
       const theta = (card.lng + 180) * (Math.PI / 180);
-      const r = GLOBE_RADIUS + LAND_ELEVATION + 2;
+      const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
       group.position.set(
         -r * Math.sin(phi) * Math.cos(theta),
         r * Math.cos(phi),
@@ -269,11 +444,15 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       );
     }
     
-    group.lookAt(0, 0, 0);
+    const outwardDir = group.position.clone().normalize();
+    const targetPoint = group.position.clone().add(outwardDir);
+    group.lookAt(targetPoint);
+    
     group.userData = { card };
     markerOpacity.current[card.id] = 1;
+    
     return group;
-  }, []);
+  }, [createLightBeam]);
 
   const getMarkerVisibility = useCallback((markerPos, cameraPos, cardId) => {
     toMarker.current.subVectors(cameraPos, markerPos).normalize();
@@ -313,7 +492,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const startTarget = controls.target.clone();
     const endTarget = new THREE.Vector3(0, 0, 0);
     const startTime = performance.now();
-    const duration = 2800;
+    const duration = 2000;
     
     const animate = (currentTime) => {
       const elapsed = currentTime - startTime;
@@ -354,6 +533,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     if (!camera || !container || markers.length === 0) return null;
     
     const rect = container.getBoundingClientRect();
+    
     mouseNDC.current.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1
@@ -367,6 +547,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     
     let closestCard = null;
     let closestDist = HOVER_DISTANCE_3D;
+    
     const threshold = lastHoveredId.current ? HOVER_DISTANCE_3D * 1.2 : HOVER_DISTANCE_3D;
     
     if (lastHoveredId.current) {
@@ -376,7 +557,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
           const opacity = markerOpacity.current[card.id] ?? 0;
           if (opacity > 0.3) {
             const dist = distanceFromRayToPoint(rayOrigin.current, rayDirection.current, marker.position);
-            if (dist < threshold) return card;
+            if (dist < threshold) {
+              return card;
+            }
           }
           break;
         }
@@ -385,11 +568,15 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     
     for (const marker of markers) {
       if (!marker.visible) continue;
+      
       const card = marker.userData.card;
       if (!card) continue;
+      
       const opacity = markerOpacity.current[card.id] ?? 0;
       if (opacity < 0.3) continue;
+      
       const dist = distanceFromRayToPoint(rayOrigin.current, rayDirection.current, marker.position);
+      
       if (dist < closestDist) {
         closestDist = dist;
         closestCard = card;
@@ -437,7 +624,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     controlsRef.current = controls;
 
     controls.addEventListener('start', () => {
-      if (onInteractionRef.current) onInteractionRef.current();
+      if (onInteractionRef.current) {
+        onInteractionRef.current();
+      }
     });
 
     const observer = new MutationObserver((mutations) => {
@@ -499,9 +688,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     mainLightRef.current = mainLight;
     scene.add(new THREE.DirectionalLight(0x9333ea, 0.2).translateX(-200).translateY(-100).translateZ(-200));
 
-    const glowTexture = createGlowTexture();
-    loadStarTexture().then(texture => {
-      starTextureRef.current = { star: texture, glow: glowTexture };
+    const defaultGlow = createGlowTexture(DEFAULT_STAR_COLOR);
+    glowTextureRef.current = defaultGlow;
+    
+    loadStarTexture(DEFAULT_STAR_COLOR).then(texture => {
+      starTexturesRef.current[DEFAULT_STAR_COLOR] = texture;
     });
 
     const handleResize = () => {
@@ -533,8 +724,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         );
       }
 
-      const pulseScale = 1 + Math.sin(time * 0.0015) * 0.1;
-      const pulseGlow = 0.6 + Math.sin(time * 0.0015) * 0.3;
+      const pulseScale = 1 + Math.sin(time * 0.002) * 0.03;
+      const pulseGlow = 0.25 + Math.sin(time * 0.002) * 0.05;
+      const beamBasePulse = 0.3 + Math.sin(time * 0.003) * 0.08;
+      const rotationSpeed = time * 0.002;
+      
       const markers = markersRef.current;
       const selected = selectedCardsRef.current;
       
@@ -557,20 +751,53 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         
         marker.visible = newOpacity > 0.01;
         
-        for (let j = 0; j < marker.children.length; j++) {
-          const child = marker.children[j];
-          if (child.userData?.type === 'star') {
-            child.material.opacity = newOpacity;
-          }
+        const isSelected = selected?.includes(card.id);
+        
+        // Smoothly animate ray opacity - fade to 0 when selected
+        const currentRayOpacity = rayOpacityRef.current[card.id] ?? 1;
+        const targetRayOpacity = isSelected ? 0 : 1;
+        const newRayOpacity = currentRayOpacity + (targetRayOpacity - currentRayOpacity) * 0.08;
+        rayOpacityRef.current[card.id] = newRayOpacity;
+        
+        let starContainer = null;
+        for (const child of marker.children) {
+          if (child.userData?.type === 'starContainer') starContainer = child;
         }
         
-        const isSelected = selected?.includes(card.id);
-        marker.scale.setScalar(isSelected ? pulseScale * 1.2 * scale : scale);
-        
-        for (let j = 0; j < marker.children.length; j++) {
-          if (marker.children[j].userData?.type === 'glow') {
-            marker.children[j].material.opacity = (isSelected ? pulseGlow : 0.5) * newOpacity;
+        if (isSelected) {
+          marker.scale.setScalar(0.7 * scale);
+          
+          // Rotate star container on Z axis when selected
+          if (starContainer) {
+            starContainer.rotation.z = rotationSpeed;
           }
+          
+          marker.traverse((child) => {
+            if (child.userData?.type === 'star') {
+              child.material.opacity = newOpacity;
+            } else if (child.userData?.type === 'glow') {
+              child.material.opacity = 0.15 * newOpacity;
+            } else if (child.userData?.type === 'beam' && child.material.uniforms) {
+              child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
+            }
+          });
+        } else {
+          marker.scale.setScalar(pulseScale * scale);
+          
+          // Reset rotation when not selected
+          if (starContainer) {
+            starContainer.rotation.z = 0;
+          }
+          
+          marker.traverse((child) => {
+            if (child.userData?.type === 'star') {
+              child.material.opacity = newOpacity;
+            } else if (child.userData?.type === 'glow') {
+              child.material.opacity = pulseGlow * newOpacity;
+            } else if (child.userData?.type === 'beam' && child.material.uniforms) {
+              child.material.uniforms.opacity.value = newRayOpacity * beamBasePulse * newOpacity;
+            }
+          });
         }
         
         screenVec.copy(marker.position).project(camera);
@@ -614,7 +841,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
 
   useEffect(() => {
     return () => {
-      if (pendingHoverUpdate.current) cancelAnimationFrame(pendingHoverUpdate.current);
+      if (pendingHoverUpdate.current) {
+        cancelAnimationFrame(pendingHoverUpdate.current);
+      }
     };
   }, []);
 
@@ -623,7 +852,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, [autoRotate]);
 
   useEffect(() => {
-    if (!sceneRef.current || !starTextureRef.current) return;
+    if (!sceneRef.current || !glowTextureRef.current) return;
+    if (!starTexturesRef.current[DEFAULT_STAR_COLOR]) return;
     
     markersRef.current.forEach(m => {
       m.traverse((obj) => {
@@ -634,19 +864,44 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     });
     markersRef.current = [];
     markerOpacity.current = {};
+    rayOpacityRef.current = {};
 
-    cards.forEach(card => {
-      const group = createStarMarker(card, starTextureRef.current.star, starTextureRef.current.glow, markersRef.current);
+    let filteredCards = cards;
+    if (visibleGroups && visibleGroups.length > 0 && !visibleGroups.includes('all')) {
+      filteredCards = cards.filter(card => {
+        if (!card.groups || card.groups.length === 0) return false;
+        return card.groups.some(g => visibleGroups.includes(g));
+      });
+    }
+
+    filteredCards.forEach(card => {
+      const color = card.starColor || DEFAULT_STAR_COLOR;
+      const starTexture = starTexturesRef.current[color] || starTexturesRef.current[DEFAULT_STAR_COLOR];
+      const glowTexture = createGlowTexture(color);
+      
+      const group = createStarMarker(card, starTexture, glowTexture, markersRef.current);
       sceneRef.current.add(group);
       markersRef.current.push(group);
     });
-  }, [cards, createStarMarker]);
+  }, [cards, visibleGroups, createStarMarker, createGlowTexture]);
 
   useEffect(() => {
     const checkTexture = setInterval(() => {
-      if (starTextureRef.current && sceneRef.current && markersRef.current.length === 0 && cards.length > 0) {
-        cards.forEach(card => {
-          const group = createStarMarker(card, starTextureRef.current.star, starTextureRef.current.glow, markersRef.current);
+      if (starTexturesRef.current[DEFAULT_STAR_COLOR] && sceneRef.current && markersRef.current.length === 0 && cards.length > 0) {
+        let filteredCards = cards;
+        if (visibleGroups && visibleGroups.length > 0 && !visibleGroups.includes('all')) {
+          filteredCards = cards.filter(card => {
+            if (!card.groups || card.groups.length === 0) return false;
+            return card.groups.some(g => visibleGroups.includes(g));
+          });
+        }
+        
+        filteredCards.forEach(card => {
+          const color = card.starColor || DEFAULT_STAR_COLOR;
+          const starTexture = starTexturesRef.current[color] || starTexturesRef.current[DEFAULT_STAR_COLOR];
+          const glowTexture = createGlowTexture(color);
+          
+          const group = createStarMarker(card, starTexture, glowTexture, markersRef.current);
           sceneRef.current.add(group);
           markersRef.current.push(group);
         });
@@ -654,12 +909,15 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       }
     }, 100);
     return () => clearInterval(checkTexture);
-  }, [cards, createStarMarker]);
+  }, [cards, visibleGroups, createStarMarker, createGlowTexture]);
 
   const handleClick = useCallback((e) => {
     const card = findCardAtMouse(e.clientX, e.clientY);
-    if (card) onMarkerClick(card);
-  }, [onMarkerClick, findCardAtMouse]);
+    if (card) {
+      onMarkerClick(card);
+      focusOnCard(card);
+    }
+  }, [onMarkerClick, findCardAtMouse, focusOnCard]);
 
   const handlePointerMove = useCallback((e) => {
     const card = findCardAtMouse(e.clientX, e.clientY);
@@ -667,7 +925,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     
     if (newHoveredId !== lastHoveredId.current) {
       lastHoveredId.current = newHoveredId;
-      if (pendingHoverUpdate.current) cancelAnimationFrame(pendingHoverUpdate.current);
+      
+      if (pendingHoverUpdate.current) {
+        cancelAnimationFrame(pendingHoverUpdate.current);
+      }
+      
       pendingHoverUpdate.current = requestAnimationFrame(() => {
         setIsHovering(newHoveredId !== null);
         pendingHoverUpdate.current = null;
@@ -676,7 +938,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, [findCardAtMouse]);
 
   const handlePointerLeave = useCallback(() => {
-    if (pendingHoverUpdate.current) cancelAnimationFrame(pendingHoverUpdate.current);
+    if (pendingHoverUpdate.current) {
+      cancelAnimationFrame(pendingHoverUpdate.current);
+    }
     lastHoveredId.current = null;
     setIsHovering(false);
   }, []);
