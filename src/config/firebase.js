@@ -1,9 +1,12 @@
 // Firebase configuration
-// IMPORTANT: Replace these values with your own from Firebase Console!
-// Go to: Firebase Console → Project Settings → Your apps → Web app → Config
-
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  getRedirectResult,
+  signOut 
+} from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -11,8 +14,8 @@ const firebaseConfig = {
   authDomain: "anking-globe.firebaseapp.com",
   projectId: "anking-globe",
   storageBucket: "anking-globe.firebasestorage.app",
-  messagingSenderId: "785867037636",
-  appId: "1:785867037636:web:cbbb46ed040a2332bae291"
+  messagingSenderId: "615376842",
+  appId: "1:615376842:web:your_app_id"
 };
 
 // Initialize Firebase
@@ -34,13 +37,22 @@ export const signInWithGoogle = async () => {
   }
 };
 
-export const signOutUser = async () => {
+export const checkRedirectResult = async () => {
   try {
-    await signOut(auth);
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const token = await result.user.getIdToken();
+      return { user: result.user, token };
+    }
+    return null;
   } catch (error) {
-    console.error('Sign-out error:', error);
-    throw error;
+    console.error('Redirect result error:', error);
+    return null;
   }
+};
+
+export const signOutUser = async () => {
+  await signOut(auth);
 };
 
 export const getCurrentToken = async () => {

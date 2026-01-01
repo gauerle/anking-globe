@@ -9,10 +9,11 @@ export function useCards() {
   const loadCards = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
       const data = await fetchCards();
       setCards(data);
+      setError(null);
     } catch (err) {
+      console.error('Failed to load cards:', err);
       setError(err.message);
     } finally {
       setLoading(false);

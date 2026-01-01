@@ -6,7 +6,7 @@ const GLOBE_RADIUS = 100;
 const LAND_ELEVATION = 3.0;
 const MARKER_SIZE = 7;
 const SKYBOX_RADIUS = 1500;
-const HOVER_DISTANCE_3D = 5; // Distance threshold - slightly larger than star size
+const HOVER_DISTANCE_3D = 5;
 
 const COLORS = {
   water: { r: 17, g: 22, b: 41 },
@@ -32,29 +32,19 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const onInteractionRef = useRef(onInteraction);
   const isInitialized = useRef(false);
   
-  // Cursor state via React - batched updates
   const [isHovering, setIsHovering] = useState(false);
   const lastHoveredId = useRef(null);
   const pendingHoverUpdate = useRef(null);
   
-  // Reusable vectors for calculations
   const rayOrigin = useRef(new THREE.Vector3());
   const rayDirection = useRef(new THREE.Vector3());
   const toMarker = useRef(new THREE.Vector3());
   const tempVec = useRef(new THREE.Vector3());
   const mouseNDC = useRef(new THREE.Vector2());
 
-  useEffect(() => {
-    selectedCardsRef.current = selectedCards;
-  }, [selectedCards]);
-
-  useEffect(() => {
-    onMarkerVisibilityChangeRef.current = onMarkerVisibilityChange;
-  }, [onMarkerVisibilityChange]);
-
-  useEffect(() => {
-    onInteractionRef.current = onInteraction;
-  }, [onInteraction]);
+  useEffect(() => { selectedCardsRef.current = selectedCards; }, [selectedCards]);
+  useEffect(() => { onMarkerVisibilityChangeRef.current = onMarkerVisibilityChange; }, [onMarkerVisibilityChange]);
+  useEffect(() => { onInteractionRef.current = onInteraction; }, [onInteraction]);
 
   const createStarfieldTexture = useCallback(() => {
     const size = 4096;
@@ -62,7 +52,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     canvas.width = size;
     canvas.height = size / 2;
     const ctx = canvas.getContext('2d');
-    
     ctx.fillStyle = '#000003';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
@@ -71,7 +60,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       const y = Math.random() * canvas.height;
       const radius = Math.random() * 1.2 + 0.3;
       const brightness = Math.random();
-      
       let r, g, b;
       const colorVariant = Math.random();
       if (colorVariant < 0.7) {
@@ -85,13 +73,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         g = 210 + Math.random() * 20;
         b = 160 + Math.random() * 40;
       }
-      
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${(0.2 + brightness * 0.4) * 0.6})`;
       ctx.fill();
     }
-    
     return new THREE.CanvasTexture(canvas);
   }, []);
 
@@ -101,7 +87,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     canvas.width = size;
     canvas.height = size / 2;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    
     ctx.drawImage(specularImg, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
@@ -123,10 +108,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     for (let i = 0; i < data.length; i += 4) {
       const brightness = data[i];
       const isWater = brightness > 100;
-      
       dispData[i] = dispData[i + 1] = dispData[i + 2] = isWater ? 0 : 255;
       dispData[i + 3] = 255;
-
       if (isWater) {
         colorData[i] = COLORS.water.r;
         colorData[i + 1] = COLORS.water.g;
@@ -185,7 +168,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         ctx.fill();
         resolve(new THREE.CanvasTexture(canvas));
       };
-      img.src = '/star.svg';
+      const baseUrl = import.meta.env.BASE_URL || '/';
+      img.src = baseUrl + 'star.svg';
     });
   }, []);
 
@@ -194,16 +178,13 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     canvas.width = 128;
     canvas.height = 128;
     const ctx = canvas.getContext('2d');
-    
     const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
     gradient.addColorStop(0, 'rgba(147, 51, 234, 0.8)');
     gradient.addColorStop(0.3, 'rgba(147, 51, 234, 0.4)');
     gradient.addColorStop(0.6, 'rgba(147, 51, 234, 0.15)');
     gradient.addColorStop(1, 'rgba(147, 51, 234, 0)');
-    
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 128, 128);
-    
     return new THREE.CanvasTexture(canvas);
   }, []);
 
@@ -239,13 +220,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     group.add(glowMesh);
     group.add(mesh);
     
-    // Calculate base position
     let lat = card.lat;
     let lng = card.lng;
-    
-    // Check for collisions with existing markers and offset if needed
-    const MIN_DISTANCE = 8; // Minimum distance between markers (in 3D space units)
-    const OFFSET_AMOUNT = 2.5; // Degrees to offset
+    const MIN_DISTANCE = 8;
+    const OFFSET_AMOUNT = 2.5;
     let attempts = 0;
     const maxAttempts = 8;
     
@@ -273,7 +251,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         break;
       }
       
-      // Offset in a spiral pattern
       const angle = (attempts * Math.PI / 4);
       const offsetDist = OFFSET_AMOUNT * (1 + attempts * 0.3);
       lat = card.lat + Math.sin(angle) * offsetDist;
@@ -281,7 +258,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       attempts++;
     }
     
-    // If still colliding after max attempts, just place it anyway
     if (attempts >= maxAttempts) {
       const phi = (90 - card.lat) * (Math.PI / 180);
       const theta = (card.lng + 180) * (Math.PI / 180);
@@ -295,9 +271,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     
     group.lookAt(0, 0, 0);
     group.userData = { card };
-    
     markerOpacity.current[card.id] = 1;
-    
     return group;
   }, []);
 
@@ -339,7 +313,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const startTarget = controls.target.clone();
     const endTarget = new THREE.Vector3(0, 0, 0);
     const startTime = performance.now();
-    const duration = 2800; // 2.8 seconds for very smooth movement
+    const duration = 2800;
     
     const animate = (currentTime) => {
       const elapsed = currentTime - startTime;
@@ -352,8 +326,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         return;
       }
       
-      // Custom smooth ease - very gentle acceleration and deceleration
-      // Using quintic ease-in-out for ultra smooth feel
       const ease = progress < 0.5
         ? 16 * progress * progress * progress * progress * progress
         : 1 - Math.pow(-2 * progress + 2, 5) / 2;
@@ -366,27 +338,14 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     requestAnimationFrame(animate);
   }, []);
 
-  // Calculate distance from a 3D ray to a point
-  // Ray: origin + t * direction
-  // Returns the perpendicular distance from the ray to the point
   const distanceFromRayToPoint = useCallback((origin, direction, point) => {
-    // Vector from origin to point
     toMarker.current.subVectors(point, origin);
-    
-    // Project onto ray direction
     const t = toMarker.current.dot(direction);
-    
-    // Only consider points in front of camera
     if (t < 0) return Infinity;
-    
-    // Closest point on ray
     tempVec.current.copy(direction).multiplyScalar(t).add(origin);
-    
-    // Distance from closest point to marker
     return tempVec.current.distanceTo(point);
   }, []);
 
-  // Find card under mouse using 3D ray-point distance
   const findCardAtMouse = useCallback((clientX, clientY) => {
     const camera = cameraRef.current;
     const container = containerRef.current;
@@ -395,28 +354,21 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     if (!camera || !container || markers.length === 0) return null;
     
     const rect = container.getBoundingClientRect();
-    
-    // Convert mouse to NDC (-1 to 1)
     mouseNDC.current.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1
     );
     
-    // Get ray from camera through mouse position
     rayOrigin.current.copy(camera.position);
     rayDirection.current.set(mouseNDC.current.x, mouseNDC.current.y, 0.5)
       .unproject(camera)
       .sub(rayOrigin.current)
       .normalize();
     
-    // Find closest visible marker to the ray
     let closestCard = null;
     let closestDist = HOVER_DISTANCE_3D;
-    
-    // If already hovering, use slightly larger threshold (hysteresis) to prevent jitter
     const threshold = lastHoveredId.current ? HOVER_DISTANCE_3D * 1.2 : HOVER_DISTANCE_3D;
     
-    // Check current hovered card first with larger threshold
     if (lastHoveredId.current) {
       for (const marker of markers) {
         const card = marker.userData.card;
@@ -424,27 +376,20 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
           const opacity = markerOpacity.current[card.id] ?? 0;
           if (opacity > 0.3) {
             const dist = distanceFromRayToPoint(rayOrigin.current, rayDirection.current, marker.position);
-            if (dist < threshold) {
-              return card; // Stay on current card
-            }
+            if (dist < threshold) return card;
           }
           break;
         }
       }
     }
     
-    // Find closest card
     for (const marker of markers) {
       if (!marker.visible) continue;
-      
       const card = marker.userData.card;
       if (!card) continue;
-      
       const opacity = markerOpacity.current[card.id] ?? 0;
       if (opacity < 0.3) continue;
-      
       const dist = distanceFromRayToPoint(rayOrigin.current, rayDirection.current, marker.position);
-      
       if (dist < closestDist) {
         closestDist = dist;
         closestCard = card;
@@ -463,7 +408,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     }
   }, [focusCardId, cards, focusOnCard]);
 
-  // Main scene setup
   useEffect(() => {
     if (!containerRef.current || isInitialized.current) return;
     isInitialized.current = true;
@@ -492,14 +436,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     controls.autoRotateSpeed = 0.5;
     controlsRef.current = controls;
 
-    // Notify parent when user interacts with globe
     controls.addEventListener('start', () => {
-      if (onInteractionRef.current) {
-        onInteractionRef.current();
-      }
+      if (onInteractionRef.current) onInteractionRef.current();
     });
 
-    // Prevent OrbitControls from changing cursor by monitoring style changes
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
@@ -512,7 +452,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     });
     observer.observe(renderer.domElement, { attributes: true, attributeFilter: ['style'] });
 
-    // Skybox
     const skybox = new THREE.Mesh(
       new THREE.SphereGeometry(SKYBOX_RADIUS, 64, 32),
       new THREE.MeshBasicMaterial({ map: createStarfieldTexture(), side: THREE.BackSide, transparent: true, opacity: 0.7 })
@@ -520,7 +459,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     scene.add(skybox);
     skyboxRef.current = skybox;
 
-    // Globe
     const globe = new THREE.Mesh(
       new THREE.SphereGeometry(GLOBE_RADIUS, 200, 100),
       new THREE.MeshStandardMaterial({ color: 0x111629 })
@@ -540,9 +478,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         metalness: 0.05,
       });
     };
-    specularImg.src = '/earth_specular.png';
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    specularImg.src = baseUrl + 'earth_specular.png';
 
-    // Atmosphere
     scene.add(new THREE.Mesh(
       new THREE.SphereGeometry(GLOBE_RADIUS + 18, 32, 32),
       new THREE.ShaderMaterial({
@@ -554,7 +492,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       })
     ));
 
-    // Lights
     scene.add(new THREE.AmbientLight(0x9966cc, 0.25));
     const mainLight = new THREE.DirectionalLight(0xffeedd, 1.0);
     mainLight.position.set(300, 100, 200);
@@ -562,7 +499,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     mainLightRef.current = mainLight;
     scene.add(new THREE.DirectionalLight(0x9333ea, 0.2).translateX(-200).translateY(-100).translateZ(-200));
 
-    // Load textures
     const glowTexture = createGlowTexture();
     loadStarTexture().then(texture => {
       starTextureRef.current = { star: texture, glow: glowTexture };
@@ -678,9 +614,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
 
   useEffect(() => {
     return () => {
-      if (pendingHoverUpdate.current) {
-        cancelAnimationFrame(pendingHoverUpdate.current);
-      }
+      if (pendingHoverUpdate.current) cancelAnimationFrame(pendingHoverUpdate.current);
     };
   }, []);
 
@@ -724,25 +658,16 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
 
   const handleClick = useCallback((e) => {
     const card = findCardAtMouse(e.clientX, e.clientY);
-    if (card) {
-      onMarkerClick(card);
-    }
+    if (card) onMarkerClick(card);
   }, [onMarkerClick, findCardAtMouse]);
 
   const handlePointerMove = useCallback((e) => {
     const card = findCardAtMouse(e.clientX, e.clientY);
     const newHoveredId = card?.id ?? null;
     
-    // Only schedule update if state actually changed
     if (newHoveredId !== lastHoveredId.current) {
       lastHoveredId.current = newHoveredId;
-      
-      // Cancel any pending update
-      if (pendingHoverUpdate.current) {
-        cancelAnimationFrame(pendingHoverUpdate.current);
-      }
-      
-      // Batch the state update to next frame
+      if (pendingHoverUpdate.current) cancelAnimationFrame(pendingHoverUpdate.current);
       pendingHoverUpdate.current = requestAnimationFrame(() => {
         setIsHovering(newHoveredId !== null);
         pendingHoverUpdate.current = null;
@@ -751,9 +676,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, [findCardAtMouse]);
 
   const handlePointerLeave = useCallback(() => {
-    if (pendingHoverUpdate.current) {
-      cancelAnimationFrame(pendingHoverUpdate.current);
-    }
+    if (pendingHoverUpdate.current) cancelAnimationFrame(pendingHoverUpdate.current);
     lastHoveredId.current = null;
     setIsHovering(false);
   }, []);

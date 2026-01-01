@@ -293,7 +293,8 @@ function AdminPage({ onBack }) {
   const [embedHeight, setEmbedHeight] = useState(500);
 
   const getEmbedUrl = () => {
-    const baseUrl = window.location.origin;
+    // Use the full URL including base path for GitHub Pages
+    const baseUrl = window.location.origin + import.meta.env.BASE_URL;
     return `${baseUrl}?embed=true`;
   };
 

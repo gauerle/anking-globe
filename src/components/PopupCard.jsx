@@ -1,12 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { getImageUrl } from '../utils/api';
 
 function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }) {
-  const [isHovered, setIsHovered] = useState(false);
-  
   const data = visibilityData?.[card.id];
   
-  // Simply don't render if not visible
   if (!data || !data.visible || data.opacity < 0.05) {
     return null;
   }
@@ -14,9 +11,8 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   const { screenPos, scale, opacity } = data;
   
   const baseScale = 0.75;
-  const hoverBoost = isHovered ? 1.15 : 1;
-  const focusBoost = isFocused ? 1.2 : 1;
-  const finalScale = scale * baseScale * Math.max(hoverBoost, focusBoost);
+  const focusBoost = isFocused ? 1.1 : 1;
+  const finalScale = scale * baseScale * focusBoost;
   
   const cardWidth = 280;
   let x = screenPos.x + 15;
@@ -28,11 +24,11 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   x = Math.max(10, x);
   y = Math.max(10, Math.min(window.innerHeight - 100 * finalScale, y));
 
-  const computedZIndex = isFocused ? 2000 : (isHovered ? 1500 : zIndex);
+  const computedZIndex = isFocused ? 2000 : zIndex;
 
   return (
     <div 
-      className={`popup-card ${isHovered ? 'hovered' : ''} ${isFocused ? 'focused' : ''}`}
+      className={`popup-card ${isFocused ? 'focused' : ''}`}
       style={{
         left: x,
         top: y,
@@ -42,8 +38,6 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',
       }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
       onClick={(e) => {
         e.stopPropagation();
         onFocus(card.id);

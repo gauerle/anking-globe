@@ -175,7 +175,7 @@ function App() {
 
       {/* Logo - shown in both main and embed views */}
       <div className={`globe-logo-container ${isEmbedMode ? 'embed' : ''}`}>
-        <img src="/logo.png" alt="Logo" className="globe-logo" />
+        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="globe-logo" />
       </div>
 
       {!isEmbedMode && (
