@@ -866,8 +866,12 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, []);
 
   useEffect(() => {
-    if (controlsRef.current) controlsRef.current.autoRotate = autoRotate;
-  }, [autoRotate]);
+      if (controlsRef.current) {
+        // Pause auto-rotation when hovering over a star or when cards are selected
+        const shouldRotate = autoRotate && !isHovering && (!selectedCards || selectedCards.length === 0);
+        controlsRef.current.autoRotate = shouldRotate;
+      }
+    }, [autoRotate, isHovering, selectedCards]);
 
   useEffect(() => {
     if (!sceneRef.current || !glowTextureRef.current) return;

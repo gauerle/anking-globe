@@ -162,7 +162,7 @@ body {
 }
 
 .popup-card-inner:hover {
-  transform: scale(1.08);
+  transform: scale(1.5);
   box-shadow: 0 8px 32px rgba(147, 51, 234, 0.25);
 }
 

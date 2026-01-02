@@ -11,7 +11,7 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   const { screenPos, scale, opacity } = data;
   
   const baseScale = 0.75;
-  const focusBoost = isFocused ? 1.1 : 1;
+    const focusBoost = isFocused ? 1.3 : 1;
   const finalScale = scale * baseScale * focusBoost;
   
   const cardWidth = 280;
