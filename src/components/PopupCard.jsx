@@ -20,17 +20,14 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   const cardHeight = 80;
   
   // Check if card should flip to left side of star
-  const flipped = screenPos.x + cardWidth > window.innerWidth - 10;
+  const flipped = screenPos.x + cardWidth * finalScale > window.innerWidth - 10;
   
-  // Position card so its edge aligns with the star
-  // Non-flipped: left edge at star, card extends right
-  // Flipped: right edge at star, card extends left
-  const leftPos = flipped ? screenPos.x - cardWidth : screenPos.x;
-  const topPos = screenPos.y - cardHeight / 2;
+  // Position the scaled card so its inner edge aligns with star center
+  // The edge nearest to star acts as the anchor point
+  const scaledWidth = cardWidth * finalScale;
+  const leftPos = flipped ? screenPos.x - scaledWidth : screenPos.x;
+  const topPos = screenPos.y - (cardHeight * finalScale) / 2;
   
-  // Transform origin at the edge closest to the star
-  const origin = flipped ? 'right center' : 'left center';
-
   const computedZIndex = isFocused ? 2000 : zIndex;
 
   return (
@@ -40,8 +37,7 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
         position: 'absolute',
         left: leftPos,
         top: topPos,
-        transform: `scale(${finalScale})`,
-        transformOrigin: origin,
+        transform: 'none',
         opacity: opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',
