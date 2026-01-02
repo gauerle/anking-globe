@@ -810,7 +810,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
             if (child.userData?.type === 'star') {
               child.material.opacity = newOpacity;
             } else if (child.userData?.type === 'glow') {
-              cchild.material.opacity = pulseGlow * newOpacity;
+              child.material.opacity = pulseGlow * newOpacity;
               child.scale.setScalar(1);
             } else if (child.userData?.type === 'beam' && child.material.uniforms) {
               child.material.uniforms.opacity.value = newRayOpacity * beamBasePulse * newOpacity;
