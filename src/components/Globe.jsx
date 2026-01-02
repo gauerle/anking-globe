@@ -18,7 +18,7 @@ const COLORS = {
 
 const DEFAULT_STAR_COLOR = '#9333ea';
 
-function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibilityChange, onInteraction, focusCardId, visibleGroups }) {
+function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibilityChange, onInteraction, focusCardId, onFocusLost, visibleGroups }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -39,6 +39,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const isInitialized = useRef(false);
   
   const [isHovering, setIsHovering] = useState(false);
+  const focusCardIdRef = useRef(focusCardId);
+  const savedCameraPosition = useRef(null);
   const lastHoveredId = useRef(null);
   const pendingHoverUpdate = useRef(null);
   
@@ -54,6 +56,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   useEffect(() => {
     selectedCardsRef.current = selectedCards;
   }, [selectedCards]);
+
+  useEffect(() => {
+    focusCardIdRef.current = focusCardId;
+  }, [focusCardId]);
 
   useEffect(() => {
     onMarkerVisibilityChangeRef.current = onMarkerVisibilityChange;
@@ -866,12 +872,90 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, []);
 
   useEffect(() => {
-      if (controlsRef.current) {
-        // Pause auto-rotation when hovering over a star or when cards are selected
-        const shouldRotate = autoRotate && !isHovering && (!selectedCards || selectedCards.length === 0);
-        controlsRef.current.autoRotate = shouldRotate;
+    if (controlsRef.current) {
+      // Pause auto-rotation when hovering, cards selected, or focused
+      const shouldRotate = autoRotate && !isHovering && (!selectedCards || selectedCards.length === 0) && !focusCardId;
+      controlsRef.current.autoRotate = shouldRotate;
+      
+      // Lock rotation when focused
+      controlsRef.current.enableRotate = !focusCardId;
+    }
+  }, [autoRotate, isHovering, selectedCards, focusCardId]);
+
+  // Camera zoom on focus
+  useEffect(() => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    
+    if (focusCardId) {
+      // Save current camera position
+      savedCameraPosition.current = cameraRef.current.position.clone();
+      
+      // Find the focused card's marker and zoom toward it
+      const focusedCard = cards.find(c => c.id === focusCardId);
+      if (focusedCard) {
+        const marker = markersRef.current.find(m => m.userData.cardId === focusCardId);
+        if (marker) {
+          const markerPos = marker.position.clone().normalize();
+          const targetPos = markerPos.multiplyScalar(180); // Closer to globe
+          
+          // Animate camera
+          const startPos = cameraRef.current.position.clone();
+          const duration = 500;
+          const startTime = Date.now();
+          
+          const animateZoom = () => {
+            const elapsed = Date.now() - startTime;
+            const t = Math.min(elapsed / duration, 1);
+            const easeT = 1 - Math.pow(1 - t, 3); // Ease out cubic
+            
+            cameraRef.current.position.lerpVectors(startPos, targetPos, easeT);
+            controlsRef.current.update();
+            
+            if (t < 1) requestAnimationFrame(animateZoom);
+          };
+          animateZoom();
+        }
       }
-    }, [autoRotate, isHovering, selectedCards]);
+    } else if (savedCameraPosition.current) {
+      // Restore camera position
+      const startPos = cameraRef.current.position.clone();
+      const targetPos = savedCameraPosition.current;
+      const duration = 500;
+      const startTime = Date.now();
+      
+      const animateZoom = () => {
+        const elapsed = Date.now() - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const easeT = 1 - Math.pow(1 - t, 3);
+        
+        cameraRef.current.position.lerpVectors(startPos, targetPos, easeT);
+        controlsRef.current.update();
+        
+        if (t < 1) requestAnimationFrame(animateZoom);
+      };
+      animateZoom();
+      
+      savedCameraPosition.current = null;
+    }
+  }, [focusCardId, cards]);
+
+  // Detect rotation attempt to unfocus
+  useEffect(() => {
+    if (!controlsRef.current || !focusCardId) return;
+    
+    const handleStart = () => {
+      if (focusCardIdRef.current && onFocusLost) {
+        onFocusLost();
+      }
+    };
+    
+    controlsRef.current.addEventListener('start', handleStart);
+    return () => {
+      if (controlsRef.current) {
+        controlsRef.current.removeEventListener('start', handleStart);
+      }
+    };
+  }, [focusCardId, onFocusLost]);
 
   useEffect(() => {
     if (!sceneRef.current || !glowTextureRef.current) return;

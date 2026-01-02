@@ -67,11 +67,14 @@ function App() {
     }
   }, [focusedCard]);
 
-  const handleFocusCard = useCallback((cardId) => {
-    resetAutoRotateTimer();
-    setFocusedCard(cardId);
-    setFocusTrigger(prev => prev + 1);
-  }, [resetAutoRotateTimer]);
+  const handleFocusCard = (id) => {
+    // If clicking same card or star, unfocus
+    if (focusCardId === id) {
+      setFocusCardId(null);
+    } else {
+      setFocusCardId(id);
+    }
+  };
 
   // Toggle card popup (from dropdown)
   const toggleCardPopup = useCallback((cardId) => {
@@ -127,6 +130,10 @@ function App() {
     resetAutoRotateTimer();
   }, [resetAutoRotateTimer]);
 
+  const handleFocusLost = () => {
+    setFocusCardId(null);
+  };
+
   if (loading) return <LoadingScreen />;
   if (error) return <div className="error-screen">Error: {error}</div>;
 
@@ -148,6 +155,7 @@ function App() {
         onMarkerVisibilityChange={handleMarkerVisibilityChange}
         onInteraction={handleGlobeInteraction}
         focusCardId={focusKey}
+        onFocusLost={handleFocusLost}
       />
 
       {!isEmbedMode && (
