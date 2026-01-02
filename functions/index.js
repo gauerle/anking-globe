@@ -1,4 +1,5 @@
 const { onRequest } = require('firebase-functions/v2/https');
+const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors');
@@ -6,21 +7,9 @@ const nodemailer = require('nodemailer');
 
 admin.initializeApp();
 
-// Initialize Nodemailer with Gmail SMTP using environment variables
-// Set these in functions/.env file or via Firebase console
-const emailUser = process.env.EMAIL_USER;
-const emailPass = process.env.EMAIL_PASS;
-let transporter = null;
-
-if (emailUser && emailPass) {
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: emailUser,
-      pass: emailPass  // Use Gmail App Password
-    }
-  });
-}
+// Define secrets for email
+const emailUserSecret = defineSecret('EMAIL_USER');
+const emailPassSecret = defineSecret('EMAIL_PASS');
 
 const db = admin.firestore();
 const storage = admin.storage();
@@ -61,14 +50,50 @@ async function getAdmins() {
 
 // Send email notification for new access request
 async function sendAccessRequestEmail(userEmail, userName, userPicture) {
-  if (!transporter) {
-    console.log('Email not configured, skipping notification');
+  console.log('sendAccessRequestEmail called for:', userEmail);
+  
+  // Get secrets at runtime
+  const emailUser = emailUserSecret.value();
+  const emailPass = emailPassSecret.value();
+  
+  console.log('Email config:', { 
+    hasUser: !!emailUser, 
+    hasPass: !!emailPass,
+    user: emailUser ? emailUser.substring(0, 5) + '...' : 'NOT SET'
+  });
+  
+  if (!emailUser || !emailPass) {
+    console.log('sendAccessRequestEmail: Email credentials not configured');
+    return false;
+  }
+  
+  // Create transporter at runtime with explicit Gmail settings
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: emailUser,
+      pass: emailPass
+    }
+  });
+  
+  console.log('sendAccessRequestEmail: Transporter created, verifying...');
+  
+  // Verify connection
+  try {
+    await transporter.verify();
+    console.log('sendAccessRequestEmail: SMTP connection verified');
+  } catch (verifyError) {
+    console.error('sendAccessRequestEmail: SMTP verification failed:', verifyError.message);
     return false;
   }
   
   const admins = await getAdmins();
+  console.log('sendAccessRequestEmail: Admin emails:', admins);
+  
   if (admins.length === 0) {
-    console.log('No admin emails configured');
+    console.log('sendAccessRequestEmail: No admin emails configured in Firestore');
     return false;
   }
   
@@ -78,6 +103,8 @@ async function sendAccessRequestEmail(userEmail, userName, userPicture) {
   
   const approveUrl = `${functionUrl}/auth/email-action?action=approve&email=${encodeURIComponent(userEmail)}`;
   const denyUrl = `${functionUrl}/auth/email-action?action=deny&email=${encodeURIComponent(userEmail)}`;
+  
+  console.log('sendAccessRequestEmail: Sending to', admins.join(', '));
   
   const mailOptions = {
     from: `"AnKing Globe" <${emailUser}>`,
@@ -118,11 +145,12 @@ async function sendAccessRequestEmail(userEmail, userName, userPicture) {
   };
   
   try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Access request email sent for ${userEmail}`);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('sendAccessRequestEmail: SUCCESS - Message ID:', info.messageId);
     return true;
   } catch (error) {
-    console.error('Email error:', error.message);
+    console.error('sendAccessRequestEmail: FAILED -', error.message);
+    console.error('sendAccessRequestEmail: Full error:', JSON.stringify(error, null, 2));
     return false;
   }
 }
@@ -182,14 +210,18 @@ app.post('/auth/check', async (req, res) => {
 });
 
 app.post('/auth/google', async (req, res) => {
+  console.log('auth/google called');
   const user = await verifyAuth(req);
   if (!user) {
+    console.log('auth/google: Invalid token');
     return res.status(401).json({ error: 'Invalid token' });
   }
   
+  console.log('auth/google: User verified:', user.email);
   const userDoc = await db.collection('users').doc(user.email).get();
   
   if (userDoc.exists) {
+    console.log('auth/google: User exists, status:', userDoc.data().status);
     const userData = userDoc.data();
     // Update name/picture
     await db.collection('users').doc(user.email).update({
@@ -208,8 +240,10 @@ app.post('/auth/google', async (req, res) => {
     return res.json({ status: userData.status });
   }
   
+  console.log('auth/google: NEW USER - creating document');
   // New user - check if they're an admin (auto-approve)
   const admins = await getAdmins();
+  console.log('auth/google: Admins list:', admins);
   const isUserAdmin = admins.includes(user.email);
   
   // Create user document
@@ -231,7 +265,9 @@ app.post('/auth/google', async (req, res) => {
   }
   
   // Send email notification to admins for pending user
-  await sendAccessRequestEmail(user.email, user.name, user.picture);
+  console.log('auth/google: Sending email notification for', user.email);
+  const emailSent = await sendAccessRequestEmail(user.email, user.name, user.picture);
+  console.log('auth/google: Email sent result:', emailSent);
   
   return res.json({ status: 'pending' });
 });
@@ -573,4 +609,8 @@ app.get('/health', (req, res) => {
 });
 
 // Export the Express app as a Firebase Cloud Function (v2)
-exports.api = onRequest({ cors: true }, app);
+// Include secrets so they're available at runtime
+exports.api = onRequest({ 
+  cors: true,
+  secrets: [emailUserSecret, emailPassSecret]
+}, app);
