@@ -1,6 +1,6 @@
 // API configuration for Firebase backend
 
-const API_BASE = 'https://us-central1-anking-globe.cloudfunctions.net/api';
+const API_BASE = 'https://api-efgn5mw6aq-uc.a.run.app';
 
 export function getImageUrl(filename) {
   if (!filename) return '';

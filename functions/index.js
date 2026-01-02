@@ -1,9 +1,26 @@
-const { onRequest } = require("firebase-functions/v2/https");
-const express = require("express");
+const { onRequest } = require('firebase-functions/v2/https');
 const admin = require('firebase-admin');
+const express = require('express');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
 
 admin.initializeApp();
+
+// Initialize Nodemailer with Gmail SMTP using environment variables
+// Set these in functions/.env file or via Firebase console
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS;
+let transporter = null;
+
+if (emailUser && emailPass) {
+  transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: emailUser,
+      pass: emailPass  // Use Gmail App Password
+    }
+  });
+}
 
 const db = admin.firestore();
 const storage = admin.storage();
@@ -39,6 +56,74 @@ async function getAdmins() {
     return [];
   } catch {
     return [];
+  }
+}
+
+// Send email notification for new access request
+async function sendAccessRequestEmail(userEmail, userName, userPicture) {
+  if (!transporter) {
+    console.log('Email not configured, skipping notification');
+    return false;
+  }
+  
+  const admins = await getAdmins();
+  if (admins.length === 0) {
+    console.log('No admin emails configured');
+    return false;
+  }
+  
+  // Get the function URL base (for approve/deny links)
+  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
+  const functionUrl = `https://us-central1-${projectId}.cloudfunctions.net/api`;
+  
+  const approveUrl = `${functionUrl}/auth/email-action?action=approve&email=${encodeURIComponent(userEmail)}`;
+  const denyUrl = `${functionUrl}/auth/email-action?action=deny&email=${encodeURIComponent(userEmail)}`;
+  
+  const mailOptions = {
+    from: `"AnKing Globe" <${emailUser}>`,
+    to: admins.join(', '),
+    subject: `🌐 New Access Request: ${userName}`,
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="color: white; margin: 0; font-size: 24px;">🌐 New Access Request</h1>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 12px 12px;">
+          <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            ${userPicture ? `<img src="${userPicture}" style="width: 60px; height: 60px; border-radius: 50%; margin-bottom: 15px;" alt="Profile">` : ''}
+            <h2 style="margin: 0 0 10px 0; color: #333;">${userName}</h2>
+            <p style="margin: 0; color: #666; font-size: 14px;">${userEmail}</p>
+          </div>
+          
+          <p style="color: #555; margin-bottom: 25px; text-align: center;">
+            This user is requesting access to the AnKing Globe admin panel.
+          </p>
+          
+          <div style="text-align: center;">
+            <a href="${approveUrl}" style="display: inline-block; background: #28a745; color: white; padding: 12px 30px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 0 10px 10px 0;">
+              ✓ Approve
+            </a>
+            <a href="${denyUrl}" style="display: inline-block; background: #dc3545; color: white; padding: 12px 30px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 0 0 10px 10px;">
+              ✗ Reject
+            </a>
+          </div>
+          
+          <p style="color: #999; font-size: 12px; text-align: center; margin-top: 25px;">
+            You can also manage requests from the admin panel.
+          </p>
+        </div>
+      </div>
+    `
+  };
+  
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`Access request email sent for ${userEmail}`);
+    return true;
+  } catch (error) {
+    console.error('Email error:', error.message);
+    return false;
   }
 }
 
@@ -145,6 +230,9 @@ app.post('/auth/google', async (req, res) => {
     });
   }
   
+  // Send email notification to admins for pending user
+  await sendAccessRequestEmail(user.email, user.name, user.picture);
+  
   return res.json({ status: 'pending' });
 });
 
@@ -206,6 +294,123 @@ app.post('/auth/revoke', async (req, res) => {
   await db.collection('users').doc(email.toLowerCase()).delete();
   res.json({ success: true });
 });
+
+// Email action endpoint - handles clicks from email approve/deny buttons
+app.get('/auth/email-action', async (req, res) => {
+  const { action, email } = req.query;
+  
+  if (!action || !email || !['approve', 'deny'].includes(action)) {
+    return res.status(400).send(generateActionPage('error', 'Invalid request parameters'));
+  }
+  
+  const userEmail = decodeURIComponent(email).toLowerCase();
+  
+  try {
+    const userDoc = await db.collection('users').doc(userEmail).get();
+    
+    if (!userDoc.exists) {
+      return res.send(generateActionPage('error', 'User not found or already processed'));
+    }
+    
+    const userData = userDoc.data();
+    
+    if (userData.status !== 'pending') {
+      return res.send(generateActionPage('info', `This request has already been ${userData.status}`));
+    }
+    
+    if (action === 'approve') {
+      await db.collection('users').doc(userEmail).update({
+        status: 'approved',
+        approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+        approvedBy: 'email-action'
+      });
+      return res.send(generateActionPage('success', `${userData.username || userEmail} has been approved!`));
+    } else {
+      await db.collection('users').doc(userEmail).delete();
+      return res.send(generateActionPage('success', `Request from ${userData.username || userEmail} has been rejected.`));
+    }
+  } catch (error) {
+    console.error('Email action error:', error);
+    return res.status(500).send(generateActionPage('error', 'An error occurred processing this request'));
+  }
+});
+
+// Generate HTML response page for email actions
+function generateActionPage(type, message) {
+  const colors = {
+    success: { bg: '#d4edda', border: '#c3e6cb', text: '#155724', icon: '✓' },
+    error: { bg: '#f8d7da', border: '#f5c6cb', text: '#721c24', icon: '✗' },
+    info: { bg: '#d1ecf1', border: '#bee5eb', text: '#0c5460', icon: 'ℹ' }
+  };
+  const style = colors[type] || colors.info;
+  
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>AnKing Globe - Access Request</title>
+      <style>
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0;
+          padding: 20px;
+          box-sizing: border-box;
+        }
+        .card {
+          background: white;
+          border-radius: 12px;
+          padding: 40px;
+          max-width: 400px;
+          text-align: center;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        .icon {
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          background: ${style.bg};
+          border: 2px solid ${style.border};
+          color: ${style.text};
+          font-size: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0 auto 20px;
+        }
+        h1 {
+          color: #333;
+          margin: 0 0 15px;
+          font-size: 22px;
+        }
+        p {
+          color: #666;
+          margin: 0;
+          line-height: 1.6;
+        }
+        .logo {
+          font-size: 32px;
+          margin-bottom: 20px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="logo">🌐</div>
+        <div class="icon">${style.icon}</div>
+        <h1>AnKing Globe</h1>
+        <p>${message}</p>
+      </div>
+    </body>
+    </html>
+  `;
+}
 
 // ============ GEOCODING ============
 
@@ -367,5 +572,5 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', firebase: true });
 });
 
-// Export the Express app as a Firebase Cloud Function
-exports.api = onRequest(app);
+// Export the Express app as a Firebase Cloud Function (v2)
+exports.api = onRequest({ cors: true }, app);
