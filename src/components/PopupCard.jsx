@@ -14,24 +14,16 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   const baseScale = 0.75;
   const focusBoost = isFocused ? 1.3 : 1;
   const hoverBoost = isHovered ? 1.5 : 1;
-  
-  // Use base scale for positioning (without hover), so position stays fixed
-  const positionScale = scale * baseScale * focusBoost;
-  const finalScale = positionScale * hoverBoost;
+  const finalScale = scale * baseScale * focusBoost * hoverBoost;
   
   const cardWidth = 280;
-  let x = screenPos.x + 15;
-  let y = screenPos.y - 40;
   
-  if (x + cardWidth * positionScale > window.innerWidth - 10) {
-    x = screenPos.x - cardWidth * positionScale - 15;
-  }
-  x = Math.max(10, x);
-  y = Math.max(10, Math.min(window.innerHeight - 100 * positionScale, y));
+  // Check if card should flip to left side
+  const flipped = screenPos.x + 15 + cardWidth > window.innerWidth - 10;
   
-  // Transform origin at the star position
-  const originX = screenPos.x - x;
-  const originY = screenPos.y - y;
+  // Offset from star position
+  const offsetX = flipped ? -cardWidth - 15 : 15;
+  const offsetY = -40;
 
   const computedZIndex = isFocused ? 2000 : zIndex;
 
@@ -39,10 +31,10 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
     <div 
       className={`popup-card ${isFocused ? 'focused' : ''}`}
       style={{
-        left: x,
-        top: y,
-        transform: `scale(${finalScale})`,
-        transformOrigin: `${originX}px ${originY}px`,
+        left: screenPos.x,
+        top: screenPos.y,
+        transform: `translate(${offsetX}px, ${offsetY}px) scale(${finalScale})`,
+        transformOrigin: '0 0',
         opacity: opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',
