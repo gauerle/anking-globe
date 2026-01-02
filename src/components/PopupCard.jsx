@@ -29,59 +29,68 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
 
   return (
     <div 
-      className={`popup-card ${isFocused ? 'focused' : ''}`}
+      className="popup-card-anchor"
       style={{
+        position: 'absolute',
         left: screenPos.x,
         top: screenPos.y,
-        transform: `translate(${offsetX}px, ${offsetY}px) scale(${finalScale})`,
+        transform: `scale(${finalScale})`,
         transformOrigin: '0 0',
         opacity: opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',
+        transition: 'transform 0.2s ease-out, opacity 0.2s ease-out',
       }}
-      onClick={(e) => {
-        e.stopPropagation();
-        onFocus(card.id);
-      }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
-      <div className="popup-card-inner">
-        <div className="card-horizontal">
-          <div className="card-avatar-side">
-            <img 
-              src={getImageUrl(card.image)} 
-              alt={card.name}
-              onError={(e) => {
-                e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(card.name)}&background=9333ea&color=fff`;
+      <div 
+        className={`popup-card ${isFocused ? 'focused' : ''}`}
+        style={{
+          transform: `translate(${offsetX}px, ${offsetY}px)`,
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus(card.id);
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div className="popup-card-inner">
+          <div className="card-horizontal">
+            <div className="card-avatar-side">
+              <img 
+                src={getImageUrl(card.image)} 
+                alt={card.name}
+                onError={(e) => {
+                  e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(card.name)}&background=9333ea&color=fff`;
+                }}
+              />
+            </div>
+            <div className="card-text-side">
+              <div className="card-name">{card.name}</div>
+              <div className="card-info-compact">
+                {card.title}{card.title && card.university && ' · '}{card.university}
+              </div>
+              <div className="card-location-compact">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+                  <circle cx="12" cy="10" r="3"/>
+                </svg>
+                {card.location}
+              </div>
+            </div>
+            <button 
+              className="popup-close" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose(card.id);
               }}
-            />
-          </div>
-          <div className="card-text-side">
-            <div className="card-name">{card.name}</div>
-            <div className="card-info-compact">
-              {card.title}{card.title && card.university && ' · '}{card.university}
-            </div>
-            <div className="card-location-compact">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                <circle cx="12" cy="10" r="3"/>
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
-              {card.location}
-            </div>
+            </button>
           </div>
-          <button 
-            className="popup-close" 
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose(card.id);
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#333" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
         </div>
       </div>
     </div>
