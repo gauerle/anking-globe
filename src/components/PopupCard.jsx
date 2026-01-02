@@ -14,19 +14,22 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   const baseScale = 0.75;
   const focusBoost = isFocused ? 1.3 : 1;
   const hoverBoost = isHovered ? 1.5 : 1;
-  const finalScale = scale * baseScale * focusBoost * hoverBoost;
+  
+  // Use base scale for positioning (without hover), so position stays fixed
+  const positionScale = scale * baseScale * focusBoost;
+  const finalScale = positionScale * hoverBoost;
   
   const cardWidth = 280;
   let x = screenPos.x + 15;
   let y = screenPos.y - 40;
   
-  if (x + cardWidth * finalScale > window.innerWidth - 10) {
-    x = screenPos.x - cardWidth * finalScale - 15;
+  if (x + cardWidth * positionScale > window.innerWidth - 10) {
+    x = screenPos.x - cardWidth * positionScale - 15;
   }
   x = Math.max(10, x);
-  y = Math.max(10, Math.min(window.innerHeight - 100 * finalScale, y));
+  y = Math.max(10, Math.min(window.innerHeight - 100 * positionScale, y));
   
-  // Calculate transform origin relative to star position
+  // Transform origin at the star position
   const originX = screenPos.x - x;
   const originY = screenPos.y - y;
 
