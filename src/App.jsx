@@ -69,10 +69,10 @@ function App() {
 
   const handleFocusCard = (id) => {
     // If clicking same card or star, unfocus
-    if (focusCardId === id) {
-      setFocusCardId(null);
+    if (focusedCard === id) {
+      setFocusedCard(null);
     } else {
-      setFocusCardId(id);
+      setFocusedCard(id);
     }
   };
 
@@ -131,7 +131,7 @@ function App() {
   }, [resetAutoRotateTimer]);
 
   const handleFocusLost = () => {
-    setFocusCardId(null);
+    setFocusedCard(null);
   };
 
   if (loading) return <LoadingScreen />;
