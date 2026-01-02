@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { getImageUrl } from '../utils/api';
 
 function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }) {
-  const data = visibilityData?.[card.id];
+  const [isHovered, setIsHovered] = useState(false);
   
   if (!data || !data.visible || data.opacity < 0.05) {
     return null;
