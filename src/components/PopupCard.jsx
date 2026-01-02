@@ -3,6 +3,7 @@ import { getImageUrl } from '../utils/api';
 
 function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
+  const data = visibilityData?.[card.id];
   
   if (!data || !data.visible || data.opacity < 0.05) {
     return null;
@@ -11,17 +12,16 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   const { screenPos, scale, opacity } = data;
   
   const baseScale = 0.75;
-    const focusBoost = isFocused ? 1.3 : 1;
-  const finalScale = scale * baseScale * focusBoost;
+  const focusBoost = isFocused ? 1.3 : 1;
+  const hoverBoost = isHovered ? 1.5 : 1;
+  const finalScale = scale * baseScale * focusBoost * hoverBoost;
   
   const cardWidth = 280;
   let x = screenPos.x + 15;
   let y = screenPos.y - 40;
-  let flipped = false;
   
   if (x + cardWidth * finalScale > window.innerWidth - 10) {
     x = screenPos.x - cardWidth * finalScale - 15;
-    flipped = true;
   }
   x = Math.max(10, x);
   y = Math.max(10, Math.min(window.innerHeight - 100 * finalScale, y));
@@ -48,6 +48,8 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
         e.stopPropagation();
         onFocus(card.id);
       }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       <div className="popup-card-inner">
         <div className="card-horizontal">
