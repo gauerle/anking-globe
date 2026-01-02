@@ -883,44 +883,44 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, [autoRotate, isHovering, selectedCards, focusCardId]);
 
   // Camera zoom on focus
+  // Camera zoom on focus
   useEffect(() => {
     if (!cameraRef.current || !controlsRef.current) return;
     
     if (focusCardId) {
-      // Save current camera position
-      savedCameraPosition.current = cameraRef.current.position.clone();
+      // Save current camera position only if not already saved
+      if (!savedCameraPosition.current) {
+        savedCameraPosition.current = cameraRef.current.position.clone();
+      }
       
-      // Find the focused card's marker and zoom toward it
-      const focusedCard = cards.find(c => c.id === focusCardId);
-      if (focusedCard) {
-        const marker = markersRef.current.find(m => m.userData.cardId === focusCardId);
-        if (marker) {
-          const markerPos = marker.position.clone().normalize();
-          const targetPos = markerPos.multiplyScalar(180); // Closer to globe
+      // Find the focused card's marker
+      const marker = markersRef.current.find(m => m.userData.card?.id === focusCardId);
+      if (marker) {
+        const markerPos = marker.position.clone().normalize();
+        const targetPos = markerPos.multiplyScalar(160); // Zoom in closer
+        
+        // Animate camera
+        const startPos = cameraRef.current.position.clone();
+        const duration = 600;
+        const startTime = Date.now();
+        
+        const animateZoom = () => {
+          const elapsed = Date.now() - startTime;
+          const t = Math.min(elapsed / duration, 1);
+          const easeT = 1 - Math.pow(1 - t, 3); // Ease out cubic
           
-          // Animate camera
-          const startPos = cameraRef.current.position.clone();
-          const duration = 500;
-          const startTime = Date.now();
+          cameraRef.current.position.lerpVectors(startPos, targetPos, easeT);
+          controlsRef.current.update();
           
-          const animateZoom = () => {
-            const elapsed = Date.now() - startTime;
-            const t = Math.min(elapsed / duration, 1);
-            const easeT = 1 - Math.pow(1 - t, 3); // Ease out cubic
-            
-            cameraRef.current.position.lerpVectors(startPos, targetPos, easeT);
-            controlsRef.current.update();
-            
-            if (t < 1) requestAnimationFrame(animateZoom);
-          };
-          animateZoom();
-        }
+          if (t < 1) requestAnimationFrame(animateZoom);
+        };
+        animateZoom();
       }
     } else if (savedCameraPosition.current) {
       // Restore camera position
       const startPos = cameraRef.current.position.clone();
       const targetPos = savedCameraPosition.current;
-      const duration = 500;
+      const duration = 600;
       const startTime = Date.now();
       
       const animateZoom = () => {
@@ -937,7 +937,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       
       savedCameraPosition.current = null;
     }
-  }, [focusCardId, cards]);
+  }, [focusCardId]);
 
   // Detect rotation attempt to unfocus
   useEffect(() => {

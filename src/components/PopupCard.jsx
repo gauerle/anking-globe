@@ -40,6 +40,7 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
       }}
       onClick={(e) => {
         e.stopPropagation();
+        onFocus(card.id);
       }}
     >
       <div className="popup-card-inner">

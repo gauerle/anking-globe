@@ -50,15 +50,23 @@ function App() {
 
   const handleMarkerClick = useCallback((card) => {
     resetAutoRotateTimer();
+    
+    // If clicking the same star that's focused, close and unfocus
+    if (focusedCard === card.id) {
+      setSelectedCards(prev => prev.filter(id => id !== card.id));
+      setFocusedCard(null);
+      return;
+    }
+    
+    // Otherwise, open/select the card and focus on it
     setSelectedCards(prev => {
       if (prev.includes(card.id)) {
-        return prev.filter(id => id !== card.id);
+        return prev; // Already open, just focus
       }
       return [...prev, card.id];
     });
     setFocusedCard(card.id);
-    setFocusTrigger(prev => prev + 1);
-  }, [resetAutoRotateTimer]);
+  }, [resetAutoRotateTimer, focusedCard]);
 
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
@@ -130,9 +138,10 @@ function App() {
     resetAutoRotateTimer();
   }, [resetAutoRotateTimer]);
 
-  const handleFocusLost = () => {
+  const handleFocusLost = useCallback(() => {
     setFocusedCard(null);
-  };
+    // Don't close the card, just release focus so user can rotate/zoom freely
+  }, []);
 
   if (loading) return <LoadingScreen />;
   if (error) return <div className="error-screen">Error: {error}</div>;
@@ -143,7 +152,7 @@ function App() {
 
   const countryCount = new Set(cards.map(c => c.location.split(',').pop()?.trim())).size;
   const selectedCardObjects = cards.filter(c => selectedCards.includes(c.id));
-  const focusKey = focusedCard ? `${focusedCard}-${focusTrigger}` : null;
+  const focusKey = focusedCard;
 
   return (
     <div className={`globe-container ${isEmbedMode ? 'embed-mode' : ''}`}>
