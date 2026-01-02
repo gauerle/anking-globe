@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
 
 const GLOBE_RADIUS = 100;
 const LAND_ELEVATION = 3.0;
@@ -245,52 +246,67 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
 
   // Create star-shaped beam geometry that matches the star exactly
   const createStarBeamGeometry = useCallback(() => {
-    const segments = 20;
-    const points = 10; // 5-pointed star = 10 vertices
+    // Parse the actual SVG star path
+    const svgPath = 'M4.9.28l2.13,2.42,3.16-.69c.6-.21,1.1.49.71.99l-1.62,2.83,1.6,2.74c.38.5-.12,1.19-.72.98l-3.16-.61-2.14,2.31c-.36.52-1.17.25-1.16-.38l-.37-3.13L.45,6.36c-.61-.18-.6-1.04,0-1.22l2.9-1.26.39-3.23c-.01-.63.8-.89,1.16-.37Z';
     
-    // Match the star size exactly
-    const starOuterRadius = MARKER_SIZE / 2;
-    const starInnerRadius = MARKER_SIZE / 2 * 0.42;
+    const loader = new SVGLoader();
+    const svgData = loader.parse(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 11.04 11.53"><path d="${svgPath}"/></svg>`);
+    
+    // Get the star shape from SVG
+    const shapes = SVGLoader.createShapes(svgData.paths[0]);
+    const starShape = shapes[0];
+    
+    // SVG viewBox center
+    const svgCenterX = 11.04 / 2;
+    const svgCenterY = 11.53 / 2;
+    
+    // Scale factor to match MARKER_SIZE
+    const svgSize = Math.max(11.04, 11.53);
+    const scaleFactor = MARKER_SIZE / svgSize;
+    
+    // Get points from the shape and center/scale them
+    const shapePoints = starShape.getPoints(32);
+    const centeredPoints = shapePoints.map(p => ({
+      x: (p.x - svgCenterX) * scaleFactor,
+      y: -(p.y - svgCenterY) * scaleFactor // Flip Y for Three.js
+    }));
+    
+    const segments = 20;
+    const numPoints = centeredPoints.length;
     
     const positions = [];
     const uvs = [];
     const indices = [];
     
+    // Create rings along the ray length
     for (let seg = 0; seg <= segments; seg++) {
       const t = seg / segments;
       const z = t * RAY_LENGTH;
+      const scale = 1 + t * 1.2; // Expand as ray extends
       
-      // Scale expands as ray extends into space
-      const scale = 1 + t * 1.2;
-      
-      for (let i = 0; i < points; i++) {
-        const isOuter = i % 2 === 0;
-        const radius = (isOuter ? starOuterRadius : starInnerRadius) * scale;
-        const angle = (i * Math.PI) / 5 - Math.PI / 2;
-        
-        const x = Math.cos(angle) * radius;
-        const y = Math.sin(angle) * radius;
-        
-        positions.push(x, y, z);
-        uvs.push(i / points, t);
+      for (let i = 0; i < numPoints; i++) {
+        const pt = centeredPoints[i];
+        positions.push(pt.x * scale, pt.y * scale, z);
+        uvs.push(i / numPoints, t);
       }
       
-      // Center point
+      // Center point for this ring
       positions.push(0, 0, z);
       uvs.push(0.5, t);
     }
     
-    const vertsPerRing = points + 1;
+    const vertsPerRing = numPoints + 1;
     
+    // Create faces between rings
     for (let seg = 0; seg < segments; seg++) {
       const currBase = seg * vertsPerRing;
       const nextBase = (seg + 1) * vertsPerRing;
       
-      for (let i = 0; i < points; i++) {
+      for (let i = 0; i < numPoints; i++) {
         const curr = currBase + i;
-        const next = currBase + ((i + 1) % points);
+        const next = currBase + ((i + 1) % numPoints);
         const currNext = nextBase + i;
-        const nextNext = nextBase + ((i + 1) % points);
+        const nextNext = nextBase + ((i + 1) % numPoints);
         
         indices.push(curr, next, currNext);
         indices.push(next, nextNext, currNext);
