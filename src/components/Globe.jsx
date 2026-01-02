@@ -743,7 +743,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       const pulseScale = 1 + Math.sin(time * 0.002) * 0.03;
       const pulseGlow = 0.25 + Math.sin(time * 0.002) * 0.05;
       const beamBasePulse = 0.3 + Math.sin(time * 0.003) * 0.08;
-      const rotationSpeed = time * 0.002;
+      const rotationSpeed = time * 0.0005;
       
       const markers = markersRef.current;
       const selected = selectedCardsRef.current;
@@ -792,7 +792,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
             if (child.userData?.type === 'star') {
               child.material.opacity = newOpacity;
             } else if (child.userData?.type === 'glow') {
-              child.material.opacity = 0.15 * newOpacity;
+              child.material.opacity = 0.6 * newOpacity;
+              child.scale.setScalar(1.8);
             } else if (child.userData?.type === 'beam' && child.material.uniforms) {
               child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
             }
@@ -809,7 +810,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
             if (child.userData?.type === 'star') {
               child.material.opacity = newOpacity;
             } else if (child.userData?.type === 'glow') {
-              child.material.opacity = pulseGlow * newOpacity;
+              cchild.material.opacity = pulseGlow * newOpacity;
+              child.scale.setScalar(1);
             } else if (child.userData?.type === 'beam' && child.material.uniforms) {
               child.material.uniforms.opacity.value = newRayOpacity * beamBasePulse * newOpacity;
             }
