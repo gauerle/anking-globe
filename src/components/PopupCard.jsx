@@ -17,12 +17,18 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   const cardWidth = 280;
   let x = screenPos.x + 15;
   let y = screenPos.y - 40;
+  let flipped = false;
   
   if (x + cardWidth * finalScale > window.innerWidth - 10) {
     x = screenPos.x - cardWidth * finalScale - 15;
+    flipped = true;
   }
   x = Math.max(10, x);
   y = Math.max(10, Math.min(window.innerHeight - 100 * finalScale, y));
+  
+  // Calculate transform origin relative to star position
+  const originX = screenPos.x - x;
+  const originY = screenPos.y - y;
 
   const computedZIndex = isFocused ? 2000 : zIndex;
 
@@ -33,7 +39,7 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
         left: x,
         top: y,
         transform: `scale(${finalScale})`,
-        transformOrigin: 'left top',
+        transformOrigin: `${originX}px ${originY}px`,
         opacity: opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',
