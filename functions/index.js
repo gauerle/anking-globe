@@ -155,6 +155,75 @@ async function sendAccessRequestEmail(userEmail, userName, userPicture) {
   }
 }
 
+// Send welcome email to newly approved user
+async function sendWelcomeEmail(userEmail, userName) {
+  const emailUser = emailUserSecret.value();
+  const emailPass = emailPassSecret.value();
+  
+  console.log('sendWelcomeEmail: Starting for', userEmail);
+  
+  if (!emailUser || !emailPass) {
+    console.log('sendWelcomeEmail: Missing email credentials');
+    return false;
+  }
+  
+  const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: emailUser,
+      pass: emailPass
+    }
+  });
+  
+  try {
+    await transporter.verify();
+    console.log('sendWelcomeEmail: SMTP connection verified');
+  } catch (verifyError) {
+    console.error('sendWelcomeEmail: SMTP verification failed:', verifyError.message);
+    return false;
+  }
+  
+  const mailOptions = {
+    from: `"AnKing Globe" <${emailUser}>`,
+    to: userEmail,
+    subject: `🎉 Welcome to the AnKing Globe!`,
+    html: `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="color: white; margin: 0; font-size: 24px;">🌐 Welcome to the Globe!</h1>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 12px 12px;">
+          <div style="background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;">
+            <h2 style="margin: 0 0 15px 0; color: #333;">Hi ${userName}! 👋</h2>
+            <p style="color: #555; margin: 0 0 20px 0; line-height: 1.6;">
+              Great news! Your access request has been approved. You can now access the AnKing Globe admin panel to manage your profile and connect with the community.
+            </p>
+            <a href="https://anking-globe.web.app" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 35px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+              Visit the Globe
+            </a>
+          </div>
+          
+          <p style="color: #999; font-size: 12px; text-align: center; margin-top: 25px;">
+            Thank you for being part of the AnKing community!
+          </p>
+        </div>
+      </div>
+    `
+  };
+  
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log('sendWelcomeEmail: SUCCESS - Message ID:', info.messageId);
+    return true;
+  } catch (error) {
+    console.error('sendWelcomeEmail: FAILED -', error.message);
+    return false;
+  }
+}
+
 async function isAdmin(email) {
   const admins = await getAdmins();
   return admins.includes(email.toLowerCase());
@@ -294,11 +363,17 @@ app.post('/auth/approve', async (req, res) => {
   }
   
   const { email } = req.body;
+  const userDoc = await db.collection('users').doc(email.toLowerCase()).get();
+  const userData = userDoc.exists ? userDoc.data() : {};
+  
   await db.collection('users').doc(email.toLowerCase()).update({
     status: 'approved',
     approvedAt: admin.firestore.FieldValue.serverTimestamp(),
     approvedBy: user.email
   });
+  
+  // Send welcome email
+  await sendWelcomeEmail(email, userData.username || email);
   
   res.json({ success: true });
 });
@@ -360,6 +435,10 @@ app.get('/auth/email-action', async (req, res) => {
         approvedAt: admin.firestore.FieldValue.serverTimestamp(),
         approvedBy: 'email-action'
       });
+      
+      // Send welcome email
+      await sendWelcomeEmail(userEmail, userData.username || userEmail);
+      
       return res.send(generateActionPage('success', `${userData.username || userEmail} has been approved!`));
     } else {
       await db.collection('users').doc(userEmail).delete();

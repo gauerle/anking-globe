@@ -346,8 +346,14 @@ function AdminPage({ onBack }) {
       <div className="auth-card pending"><div className="pending-icon">⏳</div><h1>Access Pending</h1>
         {currentUser && <div className="pending-user-info">{currentUser.picture && <img src={currentUser.picture} alt="" className="pending-avatar"/>}<p><strong>{currentUser.username}</strong></p><p>{currentUser.email}</p></div>}
         <p>An admin has been notified and will review your request.</p>
-        <button onClick={() => checkAuthStatus(token)}>Check Status</button>
-        <button className="secondary" onClick={handleSignOut}>Sign Out</button>
+        <button className="google-sign-in-btn" onClick={handleSignOut}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Use another account
+        </button>
       </div>
     </div></div>
   );
