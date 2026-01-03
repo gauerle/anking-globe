@@ -52,10 +52,15 @@ function App() {
   // Check for notification from email action redirect
   // Check for notification from email action redirect
   // Check for notification from email action redirect
+  // Check for notification from email action redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const notifType = params.get('notification');
     const message = params.get('message');
+    
+    console.log('URL search:', window.location.search);
+    console.log('notifType:', notifType);
+    console.log('message:', message);
     
     if (notifType && message) {
       // Show notification immediately

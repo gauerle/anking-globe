@@ -201,7 +201,7 @@ async function sendWelcomeEmail(userEmail, userName) {
             <p style="color: #555; margin: 0 0 20px 0; line-height: 1.6;">
               Great news! Your access request has been approved. You can now access the AnKing Globe admin panel to manage your profile and connect with the community.
             </p>
-            <a href="https://anking-globe.web.app" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 35px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+            <a href="https://gauerle.github.io/anking-globe/" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 35px; border-radius: 8px; text-decoration: none; font-weight: 600;">
               Visit the Globe
             </a>
           </div>
