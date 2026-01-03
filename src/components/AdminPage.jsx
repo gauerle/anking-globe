@@ -37,6 +37,7 @@ function AdminPage({ onBack }) {
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [showEmbedModal, setShowEmbedModal] = useState(false);
   const [embedCopied, setEmbedCopied] = useState(false);
+  const [notification, setNotification] = useState(null);
   
   const fileInputRef = useRef(null);
 
@@ -147,13 +148,25 @@ function AdminPage({ onBack }) {
   };
 
   const approveUser = async (email) => {
+  try {
     await fetch(`${API_BASE}/auth/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ email }) });
-    loadPendingUsers();
-  };
+    setNotification({ type: 'success', message: `Approved ${email}` });
+  } catch {
+    setNotification({ type: 'error', message: 'Failed to approve' });
+  }
+  loadPendingUsers();
+  setTimeout(() => setNotification(null), 4000);
+};
   
   const denyUser = async (email) => {
+  try {
     await fetch(`${API_BASE}/auth/deny`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ email }) });
-    loadPendingUsers();
+    setNotification({ type: 'success', message: `Denied ${email}` });
+  } catch {
+    setNotification({ type: 'error', message: 'Failed to deny' });
+  }
+  loadPendingUsers();
+  setTimeout(() => setNotification(null), 4000);
   };
   
   const revokeUser = async (email) => {
@@ -498,6 +511,11 @@ function AdminPage({ onBack }) {
           </div>
         </div>
       </div>
+      {notification && (
+        <div className={`toast-notification ${notification.type}`}>
+          {notification.type === 'success' ? '✓' : 'ℹ'} {notification.message}
+        </div>
+      )}
     </div>
   );
 }

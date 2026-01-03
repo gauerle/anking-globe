@@ -85,24 +85,21 @@ function App() {
   }, []);
 
   const handleMarkerClick = useCallback((card) => {
-    resetAutoRotateTimer();
-    
-    // If clicking the same star that's focused, close and unfocus
+  resetAutoRotateTimer();
+  
+  // Toggle: if already open, close it
+  if (selectedCards.includes(card.id)) {
+    setSelectedCards(prev => prev.filter(id => id !== card.id));
     if (focusedCard === card.id) {
-      setSelectedCards(prev => prev.filter(id => id !== card.id));
       setFocusedCard(null);
-      return;
     }
-    
-    // Otherwise, open/select the card and focus on it
-    setSelectedCards(prev => {
-      if (prev.includes(card.id)) {
-        return prev; // Already open, just focus
-      }
-      return [...prev, card.id];
-    });
-    setFocusedCard(card.id);
-  }, [resetAutoRotateTimer, focusedCard]);
+    return;
+  }
+  
+  // Otherwise open and focus
+  setSelectedCards(prev => [...prev, card.id]);
+  setFocusedCard(card.id);
+  }, [resetAutoRotateTimer, focusedCard, selectedCards]);
 
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
