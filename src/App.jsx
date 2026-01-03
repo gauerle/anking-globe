@@ -1,3 +1,5 @@
+console.log('APP VERSION 2 LOADED');
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Globe from './components/Globe';
 import ControlsPanel from './components/ControlsPanel';
@@ -5,6 +7,7 @@ import PopupCard from './components/PopupCard';
 import LoadingScreen from './components/LoadingScreen';
 import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
+
 
 function App() {
   
