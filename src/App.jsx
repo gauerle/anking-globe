@@ -49,18 +49,13 @@ function App() {
     };
   }, []);
 
-  // Check for notification from email action redirect
-  // Check for notification from email action redirect
-  // Check for notification from email action redirect
-  // Check for notification from email action redirect
+
+  // Check for notification from email action redirect (using hash params for GitHub Pages)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.slice(1); // Remove the #
+    const params = new URLSearchParams(hash);
     const notifType = params.get('notification');
     const message = params.get('message');
-    
-    console.log('URL search:', window.location.search);
-    console.log('notifType:', notifType);
-    console.log('message:', message);
     
     if (notifType && message) {
       // Show notification immediately

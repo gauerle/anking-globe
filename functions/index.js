@@ -462,8 +462,8 @@ function generateActionPage(type, message, username) {
     <!DOCTYPE html>
     <html>
     <head>
-      <meta http-equiv="refresh" content="0;url=${appUrl}?${params.toString()}">
-      <script>window.location.href = "${appUrl}?${params.toString()}";</script>
+      <meta http-equiv="refresh" content="0;url=${appUrl}#${params.toString()}">
+      <script>window.location.href = "${appUrl}#${params.toString()}";</script>
     </head>
     <body>Redirecting...</body>
     </html>
