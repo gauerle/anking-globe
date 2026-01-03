@@ -877,12 +877,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       const shouldRotate = autoRotate && !isHovering && (!selectedCards || selectedCards.length === 0) && !focusCardId;
       controlsRef.current.autoRotate = shouldRotate;
       
-      // Lock rotation when focused
-      controlsRef.current.enableRotate = !focusCardId;
+      // Keep rotation enabled - we detect rotation start to exit focus mode
     }
   }, [autoRotate, isHovering, selectedCards, focusCardId]);
 
-  // Camera zoom on focus
   // Camera zoom on focus
   useEffect(() => {
     if (!cameraRef.current || !controlsRef.current) return;
@@ -904,10 +902,14 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const duration = 600;
         const startTime = Date.now();
         
+        let cancelled = false;
+        
         const animateZoom = () => {
+          if (cancelled || !focusCardIdRef.current) return;
+          
           const elapsed = Date.now() - startTime;
           const t = Math.min(elapsed / duration, 1);
-          const easeT = 1 - Math.pow(1 - t, 3); // Ease out cubic
+          const easeT = 1 - Math.pow(1 - t, 3);
           
           cameraRef.current.position.lerpVectors(startPos, targetPos, easeT);
           controlsRef.current.update();
@@ -915,6 +917,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
           if (t < 1) requestAnimationFrame(animateZoom);
         };
         animateZoom();
+        
+        return () => { cancelled = true; };
       }
     } else if (savedCameraPosition.current) {
       // Restore camera position
@@ -923,7 +927,13 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       const duration = 600;
       const startTime = Date.now();
       
+      savedCameraPosition.current = null;
+      
+      let cancelled = false;
+      
       const animateZoom = () => {
+        if (cancelled) return;
+        
         const elapsed = Date.now() - startTime;
         const t = Math.min(elapsed / duration, 1);
         const easeT = 1 - Math.pow(1 - t, 3);
@@ -935,27 +945,28 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       };
       animateZoom();
       
-      savedCameraPosition.current = null;
+      return () => { cancelled = true; };
     }
   }, [focusCardId]);
 
   // Detect rotation attempt to unfocus
+  // Detect rotation/zoom attempt to unfocus
   useEffect(() => {
-    if (!controlsRef.current || !focusCardId) return;
+    if (!controlsRef.current) return;
     
-    const handleStart = () => {
+    const handleChange = () => {
       if (focusCardIdRef.current && onFocusLost) {
         onFocusLost();
       }
     };
     
-    controlsRef.current.addEventListener('start', handleStart);
+    const controls = controlsRef.current;
+    controls.addEventListener('start', handleChange);
+    
     return () => {
-      if (controlsRef.current) {
-        controlsRef.current.removeEventListener('start', handleStart);
-      }
+      controls.removeEventListener('start', handleChange);
     };
-  }, [focusCardId, onFocusLost]);
+  }, [onFocusLost]);
 
   useEffect(() => {
     if (!sceneRef.current || !glowTextureRef.current) return;
@@ -1021,9 +1032,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const card = findCardAtMouse(e.clientX, e.clientY);
     if (card) {
       onMarkerClick(card);
-      focusOnCard(card);
     }
-  }, [onMarkerClick, findCardAtMouse, focusOnCard]);
+  }, [onMarkerClick, findCardAtMouse]);
 
   const handlePointerMove = useCallback((e) => {
     const card = findCardAtMouse(e.clientX, e.clientY);
