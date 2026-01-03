@@ -20,6 +20,7 @@ function App() {
   
   // Track if all cards are shown in embed mode
   const [embedShowAll, setEmbedShowAll] = useState(false);
+  const [notification, setNotification] = useState(null);
   
   // Auto-rotate timer - restart rotation after 5s of inactivity
   const autoRotateTimer = useRef(null);
@@ -46,6 +47,24 @@ function App() {
         clearTimeout(autoRotateTimer.current);
       }
     };
+  }, []);
+
+  // Check for notification from email action redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const notifType = params.get('notification');
+    const message = params.get('message');
+    
+    if (notifType && message) {
+      setNotification({ type: notifType, message: decodeURIComponent(message) });
+      setCurrentPage('admin');
+      
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      // Auto-hide after 4 seconds
+      setTimeout(() => setNotification(null), 4000);
+    }
   }, []);
 
   const handleMarkerClick = useCallback((card) => {
@@ -248,6 +267,11 @@ function App() {
             AnKing Step Deck Maintainers
           </div>
         </>
+      )}
+      {notification && (
+        <div className={`toast-notification ${notification.type}`}>
+          {notification.type === 'success' ? '✓' : 'ℹ'} {notification.message}
+        </div>
       )}
     </div>
   );

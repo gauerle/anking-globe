@@ -450,79 +450,22 @@ app.get('/auth/email-action', async (req, res) => {
   }
 });
 
-// Generate HTML response page for email actions
-function generateActionPage(type, message) {
-  const colors = {
-    success: { bg: '#d4edda', border: '#c3e6cb', text: '#155724', icon: '✓' },
-    error: { bg: '#f8d7da', border: '#f5c6cb', text: '#721c24', icon: '✗' },
-    info: { bg: '#d1ecf1', border: '#bee5eb', text: '#0c5460', icon: 'ℹ' }
-  };
-  const style = colors[type] || colors.info;
+// Redirect to admin panel with status message
+function generateActionPage(type, message, username) {
+  const appUrl = 'https://anking-globe.web.app';
+  const params = new URLSearchParams({
+    notification: type,
+    message: message
+  });
   
   return `
     <!DOCTYPE html>
     <html>
     <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>AnKing Globe - Access Request</title>
-      <style>
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0;
-          padding: 20px;
-          box-sizing: border-box;
-        }
-        .card {
-          background: white;
-          border-radius: 12px;
-          padding: 40px;
-          max-width: 400px;
-          text-align: center;
-          box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-        }
-        .icon {
-          width: 60px;
-          height: 60px;
-          border-radius: 50%;
-          background: ${style.bg};
-          border: 2px solid ${style.border};
-          color: ${style.text};
-          font-size: 28px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 auto 20px;
-        }
-        h1 {
-          color: #333;
-          margin: 0 0 15px;
-          font-size: 22px;
-        }
-        p {
-          color: #666;
-          margin: 0;
-          line-height: 1.6;
-        }
-        .logo {
-          font-size: 32px;
-          margin-bottom: 20px;
-        }
-      </style>
+      <meta http-equiv="refresh" content="0;url=${appUrl}?${params.toString()}">
+      <script>window.location.href = "${appUrl}?${params.toString()}";</script>
     </head>
-    <body>
-      <div class="card">
-        <div class="logo">🌐</div>
-        <div class="icon">${style.icon}</div>
-        <h1>AnKing Globe</h1>
-        <p>${message}</p>
-      </div>
-    </body>
+    <body>Redirecting...</body>
     </html>
   `;
 }
