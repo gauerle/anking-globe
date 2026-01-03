@@ -7,6 +7,8 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 
 function App() {
+  alert('App loaded! Hash: ' + window.location.hash + ' Search: ' + window.location.search);
+  
   const [currentPage, setCurrentPage] = useState('globe');
   const { cards, loading, error, refetch } = useCards();
   const [selectedCards, setSelectedCards] = useState([]); // Cards with open popups
