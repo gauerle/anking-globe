@@ -50,22 +50,36 @@ function App() {
   }, []);
 
   // Check for notification from email action redirect
+  // Check for notification from email action redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const notifType = params.get('notification');
     const message = params.get('message');
     
     if (notifType && message) {
-      setNotification({ type: notifType, message: decodeURIComponent(message) });
+      // Store in sessionStorage to survive login flow
+      sessionStorage.setItem('pendingNotification', JSON.stringify({
+        type: notifType,
+        message: message
+      }));
       setCurrentPage('admin');
       
-      // Clean URL
-      window.history.replaceState({}, '', window.location.pathname);
+      // Clean URL but keep base path
+      const basePath = import.meta.env.BASE_URL || '/';
+      window.history.replaceState({}, '', basePath);
+    }
+    
+    // Check for pending notification (after login)
+    const pending = sessionStorage.getItem('pendingNotification');
+    if (pending) {
+      const { type, message } = JSON.parse(pending);
+      setNotification({ type, message });
+      sessionStorage.removeItem('pendingNotification');
       
       // Auto-hide after 4 seconds
       setTimeout(() => setNotification(null), 4000);
     }
-  }, []);
+  }, [currentPage]);
 
   const handleMarkerClick = useCallback((card) => {
     resetAutoRotateTimer();
@@ -174,106 +188,112 @@ function App() {
   const focusKey = focusedCard;
 
   return (
-    <div className={`globe-container ${isEmbedMode ? 'embed-mode' : ''}`}>
-      <Globe
-        cards={cards}
-        selectedCards={selectedCards}
-        autoRotate={autoRotate}
-        onMarkerClick={handleMarkerClick}
-        onMarkerVisibilityChange={handleMarkerVisibilityChange}
-        onInteraction={handleGlobeInteraction}
-        focusCardId={focusKey}
-        onFocusLost={handleFocusLost}
-      />
+    <>
+      {currentPage === 'admin' ? (
+        <AdminPage onBack={() => { setCurrentPage('globe'); refetch(); }} />
+      ) : (
+        <div className={`globe-container ${isEmbedMode ? 'embed-mode' : ''}`}>
+          <Globe
+            cards={cards}
+            selectedCards={selectedCards}
+            autoRotate={autoRotate}
+            onMarkerClick={handleMarkerClick}
+            onMarkerVisibilityChange={handleMarkerVisibilityChange}
+            onInteraction={handleGlobeInteraction}
+            focusCardId={focusKey}
+            onFocusLost={handleFocusLost}
+          />
 
-      {!isEmbedMode && (
-        <ControlsPanel
-          cards={cards}
-          selectedCards={selectedCards}
-          autoRotate={autoRotate}
-          onAutoRotateChange={setAutoRotate}
-          onToggleCard={toggleCardPopup}
-          onOpenAll={openAllCards}
-          onCloseAll={closeAllCards}
-          onManageClick={() => setCurrentPage('admin')}
-          isEmbedMode={isEmbedMode}
-        />
-      )}
+          {!isEmbedMode && (
+            <ControlsPanel
+              cards={cards}
+              selectedCards={selectedCards}
+              autoRotate={autoRotate}
+              onAutoRotateChange={setAutoRotate}
+              onToggleCard={toggleCardPopup}
+              onOpenAll={openAllCards}
+              onCloseAll={closeAllCards}
+              onManageClick={() => setCurrentPage('admin')}
+              isEmbedMode={isEmbedMode}
+            />
+          )}
 
-      {selectedCardObjects.map((card, index) => (
-        <PopupCard
-          key={card.id}
-          card={card}
-          visibilityData={markerVisibility}
-          onClose={handleClosePopup}
-          onFocus={handleFocusCard}
-          isFocused={focusedCard === card.id}
-          zIndex={1000 + index}
-        />
-      ))}
+          {selectedCardObjects.map((card, index) => (
+            <PopupCard
+              key={card.id}
+              card={card}
+              visibilityData={markerVisibility}
+              onClose={handleClosePopup}
+              onFocus={handleFocusCard}
+              isFocused={focusedCard === card.id}
+              zIndex={1000 + index}
+            />
+          ))}
 
-      {/* Logo - shown in both main and embed views */}
-      <div className={`globe-logo-container ${isEmbedMode ? 'embed' : ''}`}>
-        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="globe-logo" />
-      </div>
+          <div className={`globe-logo-container ${isEmbedMode ? 'embed' : ''}`}>
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="globe-logo" />
+          </div>
 
-      {!isEmbedMode && (
-        <div className="globe-footer">
-          AnKing Step Deck Maintainers · 2025
-        </div>
-      )}
+          {!isEmbedMode && (
+            <div className="globe-footer">
+              AnKing Step Deck Maintainers · 2025
+            </div>
+          )}
 
-      <div className="globe-stats">
-        <div className="stat-item">
-          <div className="stat-value">{cards.length}</div>
-          <div className="stat-label">Active Members</div>
-        </div>
-        <div className="stat-item">
-          <div className="stat-value">{countryCount}</div>
-          <div className="stat-label">Countries</div>
-        </div>
-      </div>
+          <div className="globe-stats">
+            <div className="stat-item">
+              <div className="stat-value">{cards.length}</div>
+              <div className="stat-label">Active Members</div>
+            </div>
+            <div className="stat-item">
+              <div className="stat-value">{countryCount}</div>
+              <div className="stat-label">Countries</div>
+            </div>
+          </div>
 
-      {!isEmbedMode && (
-        <div className="instructions">
-          <kbd>Drag</kbd> to rotate · <kbd>Scroll</kbd> to zoom<br />
-          Click markers to toggle cards
+          {!isEmbedMode && (
+            <div className="instructions">
+              <kbd>Drag</kbd> to rotate · <kbd>Scroll</kbd> to zoom<br />
+              Click markers to toggle cards
+            </div>
+          )}
+          
+          {isEmbedMode && (
+            <>
+              <button className="embed-toggle-btn" onClick={toggleEmbedCards}>
+                {embedShowAll ? (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                    Hide All
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                    Show All
+                  </>
+                )}
+              </button>
+              
+              <div className="embed-watermark">
+                AnKing Step Deck Maintainers
+              </div>
+            </>
+          )}
         </div>
       )}
       
-      {isEmbedMode && (
-        <>
-          <button className="embed-toggle-btn" onClick={toggleEmbedCards}>
-            {embedShowAll ? (
-              <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                  <line x1="1" y1="1" x2="23" y2="23"/>
-                </svg>
-                Hide All
-              </>
-            ) : (
-              <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-                Show All
-              </>
-            )}
-          </button>
-          
-          <div className="embed-watermark">
-            AnKing Step Deck Maintainers
-          </div>
-        </>
-      )}
       {notification && (
         <div className={`toast-notification ${notification.type}`}>
           {notification.type === 'success' ? '✓' : 'ℹ'} {notification.message}
         </div>
       )}
-    </div>
+    </>
   );
 }
 

@@ -452,7 +452,7 @@ app.get('/auth/email-action', async (req, res) => {
 
 // Redirect to admin panel with status message
 function generateActionPage(type, message, username) {
-  const appUrl = 'https://anking-globe.web.app';
+  const appUrl = 'https://gauerle.github.io/anking-globe/';
   const params = new URLSearchParams({
     notification: type,
     message: message
