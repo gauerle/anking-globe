@@ -7,7 +7,6 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 
 function App() {
-  alert('App loaded! Hash: ' + window.location.hash + ' Search: ' + window.location.search);
   
   const [currentPage, setCurrentPage] = useState('globe');
   const { cards, loading, error, refetch } = useCards();
@@ -54,10 +53,7 @@ function App() {
 
   // Check for notification from email action redirect (using hash params for GitHub Pages)
   useEffect(() => {
-    // Debug: show what we're getting
-    alert('Hash: ' + window.location.hash + '\nSearch: ' + window.location.search);
-    
-    // Try hash first, then search params
+  const checkNotification = () => {
     let params;
     if (window.location.hash && window.location.hash.length > 1) {
       params = new URLSearchParams(window.location.hash.slice(1));
@@ -68,20 +64,23 @@ function App() {
     const notifType = params.get('notification');
     const message = params.get('message');
     
-    alert('notifType: ' + notifType + '\nmessage: ' + message);
-    
     if (notifType && message) {
-      // Show notification immediately
-      setNotification({ type: notifType, message: message });
-      setCurrentPage('admin');
+      setNotification({ type: notifType, message: decodeURIComponent(message) });
       
-      // Clean URL but keep base path
+      // Clean URL
       const basePath = import.meta.env.BASE_URL || '/';
       window.history.replaceState({}, '', basePath);
       
-      // Auto-hide after 4 seconds
       setTimeout(() => setNotification(null), 4000);
     }
+  };
+  
+  // Check on mount
+  checkNotification();
+  
+  // Also listen for hash changes
+  window.addEventListener('hashchange', checkNotification);
+  return () => window.removeEventListener('hashchange', checkNotification);
   }, []);
 
   const handleMarkerClick = useCallback((card) => {
