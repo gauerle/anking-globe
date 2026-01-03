@@ -51,35 +51,25 @@ function App() {
 
   // Check for notification from email action redirect
   // Check for notification from email action redirect
+  // Check for notification from email action redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const notifType = params.get('notification');
     const message = params.get('message');
     
     if (notifType && message) {
-      // Store in sessionStorage to survive login flow
-      sessionStorage.setItem('pendingNotification', JSON.stringify({
-        type: notifType,
-        message: message
-      }));
+      // Show notification immediately
+      setNotification({ type: notifType, message: message });
       setCurrentPage('admin');
       
       // Clean URL but keep base path
       const basePath = import.meta.env.BASE_URL || '/';
       window.history.replaceState({}, '', basePath);
-    }
-    
-    // Check for pending notification (after login)
-    const pending = sessionStorage.getItem('pendingNotification');
-    if (pending) {
-      const { type, message } = JSON.parse(pending);
-      setNotification({ type, message });
-      sessionStorage.removeItem('pendingNotification');
       
       // Auto-hide after 4 seconds
       setTimeout(() => setNotification(null), 4000);
     }
-  }, [currentPage]);
+  }, []);
 
   const handleMarkerClick = useCallback((card) => {
     resetAutoRotateTimer();
