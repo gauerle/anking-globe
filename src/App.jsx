@@ -52,10 +52,21 @@ function App() {
 
   // Check for notification from email action redirect (using hash params for GitHub Pages)
   useEffect(() => {
-    const hash = window.location.hash.slice(1); // Remove the #
-    const params = new URLSearchParams(hash);
+    // Debug: show what we're getting
+    alert('Hash: ' + window.location.hash + '\nSearch: ' + window.location.search);
+    
+    // Try hash first, then search params
+    let params;
+    if (window.location.hash && window.location.hash.length > 1) {
+      params = new URLSearchParams(window.location.hash.slice(1));
+    } else {
+      params = new URLSearchParams(window.location.search);
+    }
+    
     const notifType = params.get('notification');
     const message = params.get('message');
+    
+    alert('notifType: ' + notifType + '\nmessage: ' + message);
     
     if (notifType && message) {
       // Show notification immediately
