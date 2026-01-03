@@ -148,10 +148,13 @@ function AdminPage({ onBack }) {
   };
 
   const approveUser = async (email) => {
+  console.log('approveUser called');
   try {
     await fetch(`${API_BASE}/auth/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ email }) });
+    console.log('Setting notification');
     setNotification({ type: 'success', message: `Approved ${email}` });
-  } catch {
+  } catch (e) {
+    console.error('Error:', e);
     setNotification({ type: 'error', message: 'Failed to approve' });
   }
   loadPendingUsers();
@@ -395,7 +398,7 @@ function AdminPage({ onBack }) {
       {isAdmin && showUserManagement && (
         <div className="user-management-panel">
           <div className="user-section"><h3>Pending ({pendingUsers.length})</h3>
-            {pendingUsers.length === 0 ? <p className="no-users">No pending requests</p> : <ul>{pendingUsers.map(u => <li key={u.email}><div className="user-info">{u.picture && <img src={u.picture} alt="" className="list-avatar"/>}<div><span className="user-name">{u.username}</span><span className="user-email">{u.email}</span></div></div><div className="user-actions"><button className="approve" onClick={() => approveUser(u.email)}>Approve</button><button className="deny" onClick={() => denyUser(u.email)}>Deny</button></div></li>)}</ul>}
+            {pendingUsers.length === 0 ? <p className="no-users">No pending requests</p> : <ul>{pendingUsers.map(u => <li key={u.email}><div className="user-info">{u.picture && <img src={u.picture} alt="" className="list-avatar"/>}<div><span className="user-name">{u.username}</span><span className="user-email">{u.email}</span></div></div><div className="user-actions"><button className="approve" onClick={() => { console.log('clicked'); approveUser(u.email); }}>Approve</button><button className="deny" onClick={() => denyUser(u.email)}>Deny</button></div></li>)}</ul>}
           </div>
           <div className="user-section"><h3>Approved ({approvedUsers.length})</h3>
             <ul>{approvedUsers.map(u => <li key={u.email}><div className="user-info">{u.picture && <img src={u.picture} alt="" className="list-avatar"/>}<div><span className="user-name">{u.username || 'Unknown'}</span><span className="user-email">{u.email}</span></div></div><button className="revoke" onClick={() => revokeUser(u.email)}>Revoke</button></li>)}</ul>
