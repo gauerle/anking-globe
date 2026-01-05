@@ -840,7 +840,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         };
       }
       
-      if (markers.length > 0 && frameCount.current % 6 === 0) {
+      if (markers.length > 0 && frameCount.current % 3 === 0) {
         onMarkerVisibilityChangeRef.current?.(visibilityData);
       }
 
