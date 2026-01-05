@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { getImageUrl } from '../utils/api';
 
-// Card dimensions (must match App.jsx)
+// Card dimensions
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
 /**
  * Anchor corner definitions:
- * - 'top-left': star at card's top-left corner, card extends RIGHT and DOWN
- * - 'top-right': star at card's top-right corner, card extends LEFT and DOWN
- * - 'bottom-left': star at card's bottom-left corner, card extends RIGHT and UP
- * - 'bottom-right': star at card's bottom-right corner, card extends LEFT and UP
+ * - 'top-left': star at top-left corner, card extends RIGHT and DOWN
+ * - 'top-right': star at top-right corner, card extends LEFT and DOWN
+ * - 'bottom-left': star at bottom-left corner, card extends RIGHT and UP
+ * - 'bottom-right': star at bottom-right corner, card extends LEFT and UP
  */
 const ANCHOR_CONFIG = {
   'top-left': {
@@ -31,7 +31,7 @@ const ANCHOR_CONFIG = {
   }
 };
 
-function PopupCard({ card, visibilityData, anchor, onClose, onFocus, isFocused, zIndex }) {
+const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
   
   const data = visibilityData?.[card.id];
@@ -42,21 +42,21 @@ function PopupCard({ card, visibilityData, anchor, onClose, onFocus, isFocused, 
 
   const { screenPos, scale, opacity } = data;
   
-  // Get anchor configuration (fallback to top-left)
+  // Get anchor configuration
   const anchorConfig = ANCHOR_CONFIG[anchor] || ANCHOR_CONFIG['top-left'];
   
-  // REDUCED scale values to mitigate overlapping
-  const baseScale = 0.65;      // Reduced from 0.85
-  const minScale = 0.45;       // Reduced from 0.55
-  const maxScale = 0.8;        // Reduced from 1.0
-  const focusBoost = isFocused ? 1.25 : 1;   // Reduced from 1.35
-  const hoverBoost = isHovered && !isFocused ? 1.05 : 1;  // Reduced from 1.08
+  // Reduced scale values
+  const baseScale = 0.65;
+  const minScale = 0.45;
+  const maxScale = 0.8;
+  const focusBoost = isFocused ? 1.25 : 1;
+  const hoverBoost = isHovered && !isFocused ? 1.05 : 1;
   
   const clampedRawScale = Math.max(0.5, Math.min(0.85, scale));
   let finalScale = clampedRawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  // Calculate position based on anchor - star position is the anchor point
+  // Calculate position - star is at the anchor corner
   const { x, y } = anchorConfig.getPosition(screenPos.x, screenPos.y);
   
   // Z-index: hovered > focused > base
@@ -120,6 +120,6 @@ function PopupCard({ card, visibilityData, anchor, onClose, onFocus, isFocused, 
       </div>
     </div>
   );
-}
+});
 
 export default PopupCard;

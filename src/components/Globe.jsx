@@ -32,6 +32,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const visibilityState = useRef({});
   const markerOpacity = useRef({});
   const starTexturesRef = useRef({});
+  const prevVisibilityData = useRef({});
   const glowTextureRef = useRef(null);
   const selectedCardsRef = useRef(selectedCards);
   const onMarkerVisibilityChangeRef = useRef(onMarkerVisibilityChange);
@@ -839,7 +840,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         };
       }
       
-      if (markers.length > 0 && frameCount.current % 3 === 0) {
+      if (markers.length > 0 && frameCount.current % 6 === 0) {
         onMarkerVisibilityChangeRef.current?.(visibilityData);
       }
 
