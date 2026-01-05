@@ -1,23 +1,12 @@
 import React, { useState } from 'react';
 import { getImageUrl } from '../utils/api';
 
-// Generate a deterministic offset from card ID (for slight vertical variation)
-function getCardOffset(cardId) {
-  let hash = 0;
-  for (let i = 0; i < cardId.length; i++) {
-    hash = ((hash << 5) - hash) + cardId.charCodeAt(i);
-    hash |= 0;
-  }
-  // Return a value between -15 and +15 pixels
-  return (Math.abs(hash) % 31) - 15;
-}
-
-function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }) {
+function PopupCard({ card, visibilityData, placement, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
   
   const data = visibilityData?.[card.id];
   
-  if (!data || !data.visible || data.opacity < 0.05) {
+  if (!data || !data.visible || data.opacity < 0.05 || !placement) {
     return null;
   }
 
@@ -41,28 +30,25 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   
   const scaledHeight = cardHeight * finalScale;
   
-  // STABLE placement decision - based ONLY on star screen position
-  // Does NOT depend on scale, focus, or hover state
-  const screenCenterX = window.innerWidth / 2;
-  const placementSide = screenPos.x > screenCenterX ? 'left' : 'right';
+  // Use placement from parent (stable, computed once)
+  const { side, offsetY } = placement;
   
-  // Calculate position - anchor at star
+  // Calculate position based on stable placement
   let x;
   let transformOrigin;
   
-  if (placementSide === 'right') {
-    // Card to the RIGHT of star - left edge at star position
+  if (side === 'right') {
+    // Card to the RIGHT of star - left edge anchored at star
     x = screenPos.x;
     transformOrigin = 'left center';
   } else {
-    // Card to the LEFT of star - right edge at star position  
+    // Card to the LEFT of star - right edge anchored at star
     x = screenPos.x - cardWidth;
     transformOrigin = 'right center';
   }
   
-  // Base Y: center card vertically on star, plus deterministic offset
-  const verticalOffset = getCardOffset(card.id);
-  const baseY = screenPos.y - (cardHeight / 2) + verticalOffset;
+  // Vertical position: center on star + stable offset
+  const baseY = screenPos.y - (cardHeight / 2) + offsetY;
   
   // Clamp to screen bounds
   const clampedY = Math.max(margin, Math.min(window.innerHeight - scaledHeight - margin, baseY));

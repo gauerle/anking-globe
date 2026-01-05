@@ -48,6 +48,7 @@ function App() {
   // Auto-rotate timer - restart rotation after 5s of inactivity
   const autoRotateTimer = useRef(null);
   const lastInteractionTime = useRef(Date.now());
+  const cardPlacementsRef = useRef({});
 
   // Reset auto-rotate timer on any interaction
   const resetAutoRotateTimer = useCallback(() => {
@@ -299,6 +300,7 @@ const handleMarkerClick = useCallback((card) => {
               key={card.id}
               card={card}
               visibilityData={markerVisibility}
+              placement={cardPlacements[card.id]}
               onClose={handleClosePopup}
               onFocus={handleFocusCard}
               isFocused={focusedCard === card.id}
