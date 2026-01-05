@@ -1,4 +1,4 @@
-console.log('APP VERSION 5 LOADED');
+console.log('APP VERSION 6 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -8,6 +8,136 @@ import LoadingScreen from './components/LoadingScreen';
 import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 import { useGroups } from './hooks/useGroups';
+
+// Card dimensions (unscaled)
+const CARD_WIDTH = 220;
+const CARD_HEIGHT = 58;
+
+/**
+ * Pre-compute optimal anchor corners for all cards to prevent overlap.
+ * Uses lat/lng positions to create a stable 2D projection.
+ * 
+ * Corner options:
+ * - 'top-left': card extends RIGHT and DOWN from star
+ * - 'top-right': card extends LEFT and DOWN from star  
+ * - 'bottom-left': card extends RIGHT and UP from star
+ * - 'bottom-right': card extends LEFT and UP from star
+ */
+function computeCardAnchors(cards) {
+  if (!cards || cards.length === 0) return {};
+  
+  // Convert lat/lng to normalized 2D coordinates (0-1 range)
+  // Using equirectangular projection
+  const cardPositions = cards.map(card => ({
+    id: card.id,
+    // Normalize: lng (-180 to 180) -> x (0 to 1)
+    x: (card.lng + 180) / 360,
+    // Normalize: lat (-90 to 90) -> y (0 to 1), inverted so north is up
+    y: (90 - card.lat) / 180,
+    lat: card.lat,
+    lng: card.lng
+  }));
+  
+  // Normalized card dimensions (relative to the 0-1 coordinate space)
+  // Assume a viewport of ~1000px width for calculation
+  const normWidth = CARD_WIDTH / 1000;
+  const normHeight = CARD_HEIGHT / 600;
+  
+  // Corner offset definitions
+  // Each corner defines where the card extends FROM the star
+  const corners = {
+    'top-left': { dx: 0, dy: 0 },                        // card goes right and down
+    'top-right': { dx: -normWidth, dy: 0 },              // card goes left and down
+    'bottom-left': { dx: 0, dy: -normHeight },           // card goes right and up
+    'bottom-right': { dx: -normWidth, dy: -normHeight }  // card goes left and up
+  };
+  
+  // Get bounding box for a card at position with given corner anchor
+  const getBoundingBox = (pos, corner) => {
+    const offset = corners[corner];
+    return {
+      left: pos.x + offset.dx,
+      right: pos.x + offset.dx + normWidth,
+      top: pos.y + offset.dy,
+      bottom: pos.y + offset.dy + normHeight
+    };
+  };
+  
+  // Check if two bounding boxes overlap
+  const boxesOverlap = (a, b) => {
+    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+  };
+  
+  // Calculate overlap area between two boxes
+  const getOverlapArea = (a, b) => {
+    if (!boxesOverlap(a, b)) return 0;
+    const overlapWidth = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+    const overlapHeight = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    return overlapWidth * overlapHeight;
+  };
+  
+  // Sort cards by position (top-to-bottom, left-to-right) for consistent processing
+  const sortedCards = [...cardPositions].sort((a, b) => {
+    const yDiff = a.y - b.y;
+    if (Math.abs(yDiff) > 0.05) return yDiff;
+    return a.x - b.x;
+  });
+  
+  const anchors = {};
+  const placedBoxes = []; // Track placed card bounding boxes
+  
+  // Greedy assignment: for each card, choose corner with least overlap
+  for (const card of sortedCards) {
+    let bestCorner = 'top-left';
+    let bestOverlap = Infinity;
+    
+    // Preferred corner based on position (star on right -> card goes left, etc.)
+    const preferredCorners = [];
+    if (card.x > 0.5) {
+      // Star on right side of globe -> prefer cards extending left
+      preferredCorners.push('top-right', 'bottom-right');
+    } else {
+      // Star on left side -> prefer cards extending right
+      preferredCorners.push('top-left', 'bottom-left');
+    }
+    if (card.y > 0.5) {
+      // Star on bottom -> prefer cards extending up
+      preferredCorners.push('bottom-left', 'bottom-right');
+    } else {
+      // Star on top -> prefer cards extending down
+      preferredCorners.push('top-left', 'top-right');
+    }
+    
+    // Try all corners, but weight preferred ones
+    for (const corner of Object.keys(corners)) {
+      const box = getBoundingBox(card, corner);
+      
+      // Calculate total overlap with all placed cards
+      let totalOverlap = 0;
+      for (const placedBox of placedBoxes) {
+        totalOverlap += getOverlapArea(box, placedBox);
+      }
+      
+      // Prefer certain corners based on position (small bonus)
+      if (preferredCorners.includes(corner)) {
+        totalOverlap -= 0.0001;
+      }
+      
+      if (totalOverlap < bestOverlap) {
+        bestOverlap = totalOverlap;
+        bestCorner = corner;
+      }
+    }
+    
+    // Store the chosen anchor
+    anchors[card.id] = bestCorner;
+    
+    // Add this card's bounding box to placed cards
+    placedBoxes.push(getBoundingBox(card, bestCorner));
+  }
+  
+  return anchors;
+}
 
 
 function App() {
@@ -23,6 +153,11 @@ function App() {
   
   // Visibility filter - null means show all (All Members active by default)
   const [visibleCardIds, setVisibleCardIds] = useState(null);
+  
+  // Pre-computed card anchors (computed once when cards load)
+  const cardAnchors = useMemo(() => {
+    return computeCardAnchors(cards);
+  }, [cards]);
   
   // Check for embed mode via URL parameter
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -48,9 +183,6 @@ function App() {
   // Auto-rotate timer - restart rotation after 5s of inactivity
   const autoRotateTimer = useRef(null);
   const lastInteractionTime = useRef(Date.now());
-  
-  // Stable card placements ref - stores placement decisions that persist
-  const cardPlacementsRef = useRef({});
 
   // Reset auto-rotate timer on any interaction
   const resetAutoRotateTimer = useCallback(() => {
@@ -125,101 +257,6 @@ function App() {
   window.addEventListener('hashchange', checkNotification);
   return () => window.removeEventListener('hashchange', checkNotification);
   }, []);
-
-  // Calculate stable placements for all selected cards
-  const cardPlacements = useMemo(() => {
-    const cardWidth = 220;
-    const cardHeight = 58;
-    const verticalGap = 8;
-    const screenCenterX = typeof window !== 'undefined' ? window.innerWidth / 2 : 500;
-    
-    // Get all visible selected cards with their screen positions
-    const visibleCards = selectedCards
-      .map(cardId => {
-        const visibility = markerVisibility[cardId];
-        const cardData = cards?.find(c => c.id === cardId);
-        if (!visibility || !visibility.visible || !cardData) return null;
-        return {
-          id: cardId,
-          screenX: visibility.screenPos.x,
-          screenY: visibility.screenPos.y,
-          card: cardData
-        };
-      })
-      .filter(Boolean);
-    
-    // Sort by screen Y position for consistent processing
-    visibleCards.sort((a, b) => a.screenY - b.screenY);
-    
-    const placements = {};
-    const placedCards = { left: [], right: [] };
-    
-    for (const vc of visibleCards) {
-      // Check if we already have a stable placement for this card
-      const existingPlacement = cardPlacementsRef.current[vc.id];
-      
-      // Determine preferred side based on star position
-      const preferredSide = vc.screenX > screenCenterX ? 'left' : 'right';
-      
-      // Use existing side if available (stability), otherwise use preferred
-      const side = existingPlacement?.side || preferredSide;
-      
-      // Calculate base Y position (center on star)
-      const baseY = vc.screenY - (cardHeight / 2);
-      
-      // Check for overlaps with already-placed cards on the same side
-      let offsetY = 0;
-      const sameSideCards = placedCards[side];
-      
-      for (const placed of sameSideCards) {
-        const myTop = baseY + offsetY;
-        const myBottom = myTop + cardHeight;
-        const otherTop = placed.y;
-        const otherBottom = otherTop + cardHeight;
-        
-        // Check if they overlap vertically
-        const overlaps = !(myBottom + verticalGap < otherTop || myTop > otherBottom + verticalGap);
-        
-        // Check if they're close enough horizontally to matter
-        const horizontallyClose = Math.abs(vc.screenX - placed.screenX) < cardWidth * 0.7;
-        
-        if (overlaps && horizontallyClose) {
-          // Move below the other card
-          offsetY = (otherBottom + verticalGap) - baseY;
-        }
-      }
-      
-      // Store placement
-      placements[vc.id] = { 
-        side, 
-        offsetY
-      };
-      
-      // Track this card's position for subsequent overlap checks
-      placedCards[side].push({
-        y: baseY + offsetY,
-        screenX: vc.screenX
-      });
-    }
-    
-    // Update the stable ref (preserve side decisions for open cards)
-    for (const [id, placement] of Object.entries(placements)) {
-      if (!cardPlacementsRef.current[id]) {
-        cardPlacementsRef.current[id] = { side: placement.side };
-      }
-      cardPlacementsRef.current[id].offsetY = placement.offsetY;
-    }
-    
-    // Clean up placements for cards that are no longer selected
-    const selectedSet = new Set(selectedCards);
-    for (const id of Object.keys(cardPlacementsRef.current)) {
-      if (!selectedSet.has(id)) {
-        delete cardPlacementsRef.current[id];
-      }
-    }
-    
-    return placements;
-  }, [selectedCards, markerVisibility, cards]);
 
   // Toggle card visibility (show/hide star on globe)
   const handleToggleCardVisibility = useCallback((cardId) => {
@@ -397,7 +434,7 @@ const handleMarkerClick = useCallback((card) => {
               key={card.id}
               card={card}
               visibilityData={markerVisibility}
-              placement={cardPlacements[card.id]}
+              anchor={cardAnchors[card.id] || 'top-left'}
               onClose={handleClosePopup}
               onFocus={handleFocusCard}
               isFocused={focusedCard === card.id}

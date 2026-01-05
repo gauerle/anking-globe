@@ -1,21 +1,49 @@
 import React, { useState } from 'react';
 import { getImageUrl } from '../utils/api';
 
-function PopupCard({ card, visibilityData, placement, onClose, onFocus, isFocused, zIndex }) {
+// Card dimensions (must match App.jsx)
+const CARD_WIDTH = 220;
+const CARD_HEIGHT = 58;
+
+/**
+ * Anchor corner definitions:
+ * - 'top-left': card's top-left corner is at star, card extends RIGHT and DOWN
+ * - 'top-right': card's top-right corner is at star, card extends LEFT and DOWN
+ * - 'bottom-left': card's bottom-left corner is at star, card extends RIGHT and UP
+ * - 'bottom-right': card's bottom-right corner is at star, card extends LEFT and UP
+ */
+const ANCHOR_CONFIG = {
+  'top-left': {
+    getPosition: (starX, starY) => ({ x: starX, y: starY }),
+    transformOrigin: 'left top'
+  },
+  'top-right': {
+    getPosition: (starX, starY) => ({ x: starX - CARD_WIDTH, y: starY }),
+    transformOrigin: 'right top'
+  },
+  'bottom-left': {
+    getPosition: (starX, starY) => ({ x: starX, y: starY - CARD_HEIGHT }),
+    transformOrigin: 'left bottom'
+  },
+  'bottom-right': {
+    getPosition: (starX, starY) => ({ x: starX - CARD_WIDTH, y: starY - CARD_HEIGHT }),
+    transformOrigin: 'right bottom'
+  }
+};
+
+function PopupCard({ card, visibilityData, anchor, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
   
   const data = visibilityData?.[card.id];
   
-  if (!data || !data.visible || data.opacity < 0.05 || !placement) {
+  if (!data || !data.visible || data.opacity < 0.05) {
     return null;
   }
 
   const { screenPos, scale, opacity } = data;
   
-  // Card dimensions (unscaled)
-  const cardWidth = 220;
-  const cardHeight = 58;
-  const margin = 10;
+  // Get anchor configuration (fallback to top-left)
+  const anchorConfig = ANCHOR_CONFIG[anchor] || ANCHOR_CONFIG['top-left'];
   
   // Scale calculations with limits
   const baseScale = 0.85;
@@ -28,30 +56,8 @@ function PopupCard({ card, visibilityData, placement, onClose, onFocus, isFocuse
   let finalScale = clampedRawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  const scaledHeight = cardHeight * finalScale;
-  
-  // Use placement from parent (stable, computed once)
-  const { side, offsetY } = placement;
-  
-  // Calculate position based on stable placement
-  let x;
-  let transformOrigin;
-  
-  if (side === 'right') {
-    // Card to the RIGHT of star - left edge anchored at star
-    x = screenPos.x;
-    transformOrigin = 'left center';
-  } else {
-    // Card to the LEFT of star - right edge anchored at star
-    x = screenPos.x - cardWidth;
-    transformOrigin = 'right center';
-  }
-  
-  // Vertical position: center on star + stable offset
-  const baseY = screenPos.y - (cardHeight / 2) + offsetY;
-  
-  // Clamp to screen bounds
-  const clampedY = Math.max(margin, Math.min(window.innerHeight - scaledHeight - margin, baseY));
+  // Calculate position based on anchor
+  const { x, y } = anchorConfig.getPosition(screenPos.x, screenPos.y);
   
   // Z-index: hovered > focused > base
   let computedZIndex = zIndex || 1000;
@@ -63,9 +69,9 @@ function PopupCard({ card, visibilityData, placement, onClose, onFocus, isFocuse
       className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''}`}
       style={{
         left: x,
-        top: clampedY,
+        top: y,
         transform: `scale(${finalScale})`,
-        transformOrigin: transformOrigin,
+        transformOrigin: anchorConfig.transformOrigin,
         opacity: opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',

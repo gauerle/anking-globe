@@ -138,13 +138,12 @@ body {
 .popup-card {
   position: absolute;
   pointer-events: auto;
-  will-change: transform, opacity, left, top, z-index;
-  /* Smooth transitions for position and scale changes */
+  will-change: transform, opacity, z-index;
+  /* NO transitions on left/top - cards must stick to globe instantly */
+  /* Only transition scale and opacity for smooth focus/hover effects */
   transition: 
-    transform 0.2s ease-out, 
-    opacity 0.2s ease-out,
-    left 0.25s ease-out,
-    top 0.25s ease-out;
+    transform 0.15s ease-out, 
+    opacity 0.15s ease-out;
   cursor: pointer;
 }
 
