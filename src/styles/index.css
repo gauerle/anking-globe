@@ -135,28 +135,27 @@ body {
 
 
 /* Popup Card */
-
 .popup-card {
   position: absolute;
   pointer-events: auto;
-  will-change: transform, opacity, z-index;
-  transition: opacity 0.2s ease-out, transform 0.12s ease-out;
+  will-change: transform, opacity, left, top, z-index;
+  /* Smooth transitions for position and scale changes */
+  transition: 
+    transform 0.2s ease-out, 
+    opacity 0.2s ease-out,
+    left 0.25s ease-out,
+    top 0.25s ease-out;
   cursor: pointer;
 }
 
 .popup-card.focused .popup-card-inner {
   border-color: var(--accent-purple);
-  box-shadow: 0 4px 20px rgba(147, 51, 234, 0.25);
+  box-shadow: 0 6px 24px rgba(147, 51, 234, 0.3);
 }
 
 .popup-card.hovered .popup-card-inner {
-  border-color: #9ca3af;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-}
-
-.popup-card.hovered.focused .popup-card-inner {
-  border-color: var(--accent-purple);
-  box-shadow: 0 8px 28px rgba(147, 51, 234, 0.35);
+  border-color: #c4b5fd;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
 }
 
 .popup-card-inner {
@@ -169,12 +168,6 @@ body {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-
-.popup-card-inner:hover {
-  border-color: #d1d5db;
-}
-
-/* Note: Scale on hover is handled via JavaScript for better z-index control */
 
 .card-image-wrapper {
   width: 56px;

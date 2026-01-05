@@ -1,6 +1,17 @@
 import React, { useState } from 'react';
 import { getImageUrl } from '../utils/api';
 
+// Generate a deterministic offset from card ID (for slight vertical variation)
+function getCardOffset(cardId) {
+  let hash = 0;
+  for (let i = 0; i < cardId.length; i++) {
+    hash = ((hash << 5) - hash) + cardId.charCodeAt(i);
+    hash |= 0;
+  }
+  // Return a value between -15 and +15 pixels
+  return (Math.abs(hash) % 31) - 15;
+}
+
 function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
   
@@ -20,7 +31,7 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   // Scale calculations with limits
   const baseScale = 0.85;
   const minScale = 0.55;
-  const maxScale = 0.90;
+  const maxScale = 1.0;
   const focusBoost = isFocused ? 1.35 : 1;
   const hoverBoost = isHovered && !isFocused ? 1.08 : 1;
   
@@ -28,56 +39,33 @@ function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }
   let finalScale = clampedRawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  // Calculate available space on each side of the star
-  const spaceOnRight = window.innerWidth - screenPos.x - margin;
-  const spaceOnLeft = screenPos.x - margin;
-  
-  // Expected scaled dimensions for boundary checking
-  const scaledWidth = cardWidth * finalScale;
   const scaledHeight = cardHeight * finalScale;
   
-  // Decide placement side based on available space
-  let placementSide;
+  // STABLE placement decision - based ONLY on star screen position
+  // Does NOT depend on scale, focus, or hover state
+  const screenCenterX = window.innerWidth / 2;
+  const placementSide = screenPos.x > screenCenterX ? 'left' : 'right';
   
-  if (spaceOnRight >= scaledWidth && spaceOnLeft < scaledWidth) {
-    // Only fits on right
-    placementSide = 'right';
-  } else if (spaceOnLeft >= scaledWidth && spaceOnRight < scaledWidth) {
-    // Only fits on left
-    placementSide = 'left';
-  } else if (spaceOnRight >= scaledWidth && spaceOnLeft >= scaledWidth) {
-    // Both sides fit - choose based on star's screen position
-    // Star on right half → card goes left, star on left half → card goes right
-    placementSide = screenPos.x > window.innerWidth / 2 ? 'left' : 'right';
-  } else {
-    // Neither fits perfectly - use side with more space
-    placementSide = spaceOnRight > spaceOnLeft ? 'right' : 'left';
-  }
-  
-  // Position calculation
-  // The anchor point (star intersection) stays fixed during scaling
-  let x, transformOrigin;
+  // Calculate position - anchor at star
+  let x;
+  let transformOrigin;
   
   if (placementSide === 'right') {
-    // Card appears to the RIGHT of star
-    // Left edge of card is anchored at star position
+    // Card to the RIGHT of star - left edge at star position
     x = screenPos.x;
     transformOrigin = 'left center';
   } else {
-    // Card appears to the LEFT of star
-    // Right edge of card is anchored at star position
-    // Set left so that: left + cardWidth = screenPos.x
+    // Card to the LEFT of star - right edge at star position  
     x = screenPos.x - cardWidth;
     transformOrigin = 'right center';
   }
   
-  // Vertical position: center card vertically on star
-  // Anchor at vertical center so scaling is symmetric
-  const y = screenPos.y - (cardHeight / 2);
+  // Base Y: center card vertically on star, plus deterministic offset
+  const verticalOffset = getCardOffset(card.id);
+  const baseY = screenPos.y - (cardHeight / 2) + verticalOffset;
   
-  // Apply boundary constraints (after determining placement)
-  // For vertical, clamp to screen bounds
-  const clampedY = Math.max(margin, Math.min(window.innerHeight - scaledHeight - margin, y));
+  // Clamp to screen bounds
+  const clampedY = Math.max(margin, Math.min(window.innerHeight - scaledHeight - margin, baseY));
   
   // Z-index: hovered > focused > base
   let computedZIndex = zIndex || 1000;
