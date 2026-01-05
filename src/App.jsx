@@ -1,4 +1,4 @@
-console.log('APP VERSION 7 LOADED');
+console.log('APP VERSION 8 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -14,121 +14,125 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
 /**
- * Pre-compute optimal anchor corners for all cards to prevent overlap.
- * Uses lat/lng positions to create a stable 2D projection.
+ * Calculate great-circle distance between two lat/lng points (in degrees)
+ * Returns approximate distance for comparison purposes
+ */
+function geoDistance(lat1, lng1, lat2, lng2) {
+  const dLat = lat2 - lat1;
+  const dLng = lng2 - lng1;
+  // Simple approximation - good enough for nearby cards
+  return Math.sqrt(dLat * dLat + dLng * dLng);
+}
+
+/**
+ * Pre-compute optimal anchor corners for all cards.
  * 
  * Algorithm:
- * 1. Start with top-left corner
- * 2. Check if overlap >50% with any placed card
- * 3. If yes, try: bottom-left → bottom-right → top-right
- * 4. Pick first that has <50% overlap, or the one with least overlap
+ * For each card, look at nearby neighbors and choose a corner that
+ * extends AWAY from them to minimize overlap.
  * 
- * Corner definitions:
- * - 'top-left': star at card's top-left, card extends RIGHT and DOWN
- * - 'top-right': star at card's top-right, card extends LEFT and DOWN  
- * - 'bottom-left': star at card's bottom-left, card extends RIGHT and UP
- * - 'bottom-right': star at card's bottom-right, card extends LEFT and UP
+ * Corner definitions (where the card extends FROM the star):
+ * - 'top-left': star at top-left corner, card extends RIGHT and DOWN
+ * - 'bottom-left': star at bottom-left corner, card extends RIGHT and UP
+ * - 'bottom-right': star at bottom-right corner, card extends LEFT and UP
+ * - 'top-right': star at top-right corner, card extends LEFT and DOWN
  */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
-  // Convert lat/lng to normalized 2D coordinates (0-1 range)
-  const cardPositions = cards.map(card => ({
-    id: card.id,
-    x: (card.lng + 180) / 360,
-    y: (90 - card.lat) / 180,
-    lat: card.lat,
-    lng: card.lng
-  }));
+  const anchors = {};
+  const NEIGHBOR_THRESHOLD = 15; // degrees - cards within this are "neighbors"
   
-  // Normalized card dimensions (relative to 0-1 coordinate space)
-  const normWidth = CARD_WIDTH / 1200;
-  const normHeight = CARD_HEIGHT / 700;
-  
-  // Corner offset definitions - where card extends FROM the star
-  const corners = {
-    'top-left': { dx: 0, dy: 0 },                        // card goes right and down
-    'bottom-left': { dx: 0, dy: -normHeight },           // card goes right and up
-    'bottom-right': { dx: -normWidth, dy: -normHeight }, // card goes left and up
-    'top-right': { dx: -normWidth, dy: 0 }               // card goes left and down
+  // Corner definitions: which direction does the card extend?
+  const cornerDirections = {
+    'top-left': { dx: 1, dy: 1 },      // extends RIGHT (+x) and DOWN (+y)
+    'bottom-left': { dx: 1, dy: -1 },  // extends RIGHT (+x) and UP (-y)
+    'bottom-right': { dx: -1, dy: -1 }, // extends LEFT (-x) and UP (-y)
+    'top-right': { dx: -1, dy: 1 }     // extends LEFT (-x) and DOWN (+y)
   };
   
-  // Order to try corners
+  // Order to try corners (as specified by user)
   const cornerOrder = ['top-left', 'bottom-left', 'bottom-right', 'top-right'];
   
-  // Get bounding box for a card at position with given corner anchor
-  const getBoundingBox = (pos, corner) => {
-    const offset = corners[corner];
-    return {
-      left: pos.x + offset.dx,
-      right: pos.x + offset.dx + normWidth,
-      top: pos.y + offset.dy,
-      bottom: pos.y + offset.dy + normHeight
-    };
-  };
-  
-  // Calculate overlap percentage between two boxes (relative to box A's area)
-  const getOverlapPercentage = (a, b) => {
-    // Check if boxes overlap at all
-    if (a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom) {
-      return 0;
-    }
-    
-    const overlapWidth = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-    const overlapHeight = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-    const overlapArea = overlapWidth * overlapHeight;
-    const areaA = (a.right - a.left) * (a.bottom - a.top);
-    
-    return overlapArea / areaA;
-  };
-  
-  // Get maximum overlap percentage with any placed card
-  const getMaxOverlap = (box, placedBoxes) => {
-    let maxOverlap = 0;
-    for (const placed of placedBoxes) {
-      const overlap = getOverlapPercentage(box, placed);
-      if (overlap > maxOverlap) {
-        maxOverlap = overlap;
-      }
-    }
-    return maxOverlap;
-  };
-  
-  // Sort cards by latitude (top to bottom) for consistent processing
-  const sortedCards = [...cardPositions].sort((a, b) => a.y - b.y);
-  
-  const anchors = {};
-  const placedBoxes = [];
+  // Process cards sorted by latitude (north to south)
+  const sortedCards = [...cards].sort((a, b) => b.lat - a.lat);
   
   for (const card of sortedCards) {
-    let bestCorner = 'top-left';
-    let bestOverlap = Infinity;
-    
-    // Try corners in order: top-left → bottom-left → bottom-right → top-right
-    for (const corner of cornerOrder) {
-      const box = getBoundingBox(card, corner);
-      const maxOverlap = getMaxOverlap(box, placedBoxes);
+    // Find all nearby cards that have already been assigned anchors
+    const neighbors = [];
+    for (const other of sortedCards) {
+      if (other.id === card.id) continue;
+      if (!anchors[other.id]) continue; // Not yet processed
       
-      // If overlap is less than 50%, use this corner
-      if (maxOverlap < 0.5) {
-        bestCorner = corner;
-        bestOverlap = maxOverlap;
-        break; // Found acceptable position
+      const dist = geoDistance(card.lat, card.lng, other.lat, other.lng);
+      if (dist < NEIGHBOR_THRESHOLD) {
+        neighbors.push({
+          card: other,
+          anchor: anchors[other.id],
+          dist,
+          // Relative position: is neighbor to the right? below?
+          relX: other.lng - card.lng, // positive = neighbor is to the east/right
+          relY: card.lat - other.lat  // positive = neighbor is to the south/below (inverted lat)
+        });
+      }
+    }
+    
+    if (neighbors.length === 0) {
+      // No nearby neighbors - use default based on hemisphere
+      // West hemisphere: extend right (top-left or bottom-left)
+      // East hemisphere: extend left (top-right or bottom-right)
+      // North hemisphere: extend down (top-left or top-right)
+      // South hemisphere: extend up (bottom-left or bottom-right)
+      if (card.lng < 0 && card.lat > 0) {
+        anchors[card.id] = 'top-left';     // NW: extend right-down
+      } else if (card.lng >= 0 && card.lat > 0) {
+        anchors[card.id] = 'top-right';    // NE: extend left-down
+      } else if (card.lng < 0 && card.lat <= 0) {
+        anchors[card.id] = 'bottom-left';  // SW: extend right-up
+      } else {
+        anchors[card.id] = 'bottom-right'; // SE: extend left-up
+      }
+      continue;
+    }
+    
+    // Find the closest neighbor
+    neighbors.sort((a, b) => a.dist - b.dist);
+    const closest = neighbors[0];
+    
+    // Choose corner that extends AWAY from the closest neighbor
+    // If neighbor is to the RIGHT (relX > 0), we should extend LEFT
+    // If neighbor is BELOW (relY > 0), we should extend UP
+    let bestCorner = 'top-left';
+    let bestScore = -Infinity;
+    
+    for (const corner of cornerOrder) {
+      const dir = cornerDirections[corner];
+      let score = 0;
+      
+      for (const neighbor of neighbors) {
+        // We want to extend in the opposite direction of the neighbor
+        // If neighbor.relX > 0 (neighbor is right), dir.dx should be negative (extend left)
+        // If neighbor.relY > 0 (neighbor is below), dir.dy should be negative (extend up)
+        
+        const xScore = -neighbor.relX * dir.dx; // Positive when extending away from neighbor
+        const yScore = -neighbor.relY * dir.dy;
+        
+        // Weight by inverse distance (closer neighbors matter more)
+        const weight = 1 / (neighbor.dist + 1);
+        score += (xScore + yScore) * weight;
       }
       
-      // Track best option in case all have >50% overlap
-      if (maxOverlap < bestOverlap) {
-        bestOverlap = maxOverlap;
+      if (score > bestScore) {
+        bestScore = score;
         bestCorner = corner;
       }
     }
     
-    // Store the chosen anchor
     anchors[card.id] = bestCorner;
-    
-    // Add this card's bounding box to placed cards
-    placedBoxes.push(getBoundingBox(card, bestCorner));
   }
+  
+  // Debug: log anchors
+  console.log('Computed card anchors:', anchors);
   
   return anchors;
 }
