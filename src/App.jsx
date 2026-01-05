@@ -1,4 +1,4 @@
-console.log('APP VERSION 6 LOADED');
+console.log('APP VERSION 7 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -17,40 +17,44 @@ const CARD_HEIGHT = 58;
  * Pre-compute optimal anchor corners for all cards to prevent overlap.
  * Uses lat/lng positions to create a stable 2D projection.
  * 
- * Corner options:
- * - 'top-left': card extends RIGHT and DOWN from star
- * - 'top-right': card extends LEFT and DOWN from star  
- * - 'bottom-left': card extends RIGHT and UP from star
- * - 'bottom-right': card extends LEFT and UP from star
+ * Algorithm:
+ * 1. Start with top-left corner
+ * 2. Check if overlap >50% with any placed card
+ * 3. If yes, try: bottom-left → bottom-right → top-right
+ * 4. Pick first that has <50% overlap, or the one with least overlap
+ * 
+ * Corner definitions:
+ * - 'top-left': star at card's top-left, card extends RIGHT and DOWN
+ * - 'top-right': star at card's top-right, card extends LEFT and DOWN  
+ * - 'bottom-left': star at card's bottom-left, card extends RIGHT and UP
+ * - 'bottom-right': star at card's bottom-right, card extends LEFT and UP
  */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
   // Convert lat/lng to normalized 2D coordinates (0-1 range)
-  // Using equirectangular projection
   const cardPositions = cards.map(card => ({
     id: card.id,
-    // Normalize: lng (-180 to 180) -> x (0 to 1)
     x: (card.lng + 180) / 360,
-    // Normalize: lat (-90 to 90) -> y (0 to 1), inverted so north is up
     y: (90 - card.lat) / 180,
     lat: card.lat,
     lng: card.lng
   }));
   
-  // Normalized card dimensions (relative to the 0-1 coordinate space)
-  // Assume a viewport of ~1000px width for calculation
-  const normWidth = CARD_WIDTH / 1000;
-  const normHeight = CARD_HEIGHT / 600;
+  // Normalized card dimensions (relative to 0-1 coordinate space)
+  const normWidth = CARD_WIDTH / 1200;
+  const normHeight = CARD_HEIGHT / 700;
   
-  // Corner offset definitions
-  // Each corner defines where the card extends FROM the star
+  // Corner offset definitions - where card extends FROM the star
   const corners = {
     'top-left': { dx: 0, dy: 0 },                        // card goes right and down
-    'top-right': { dx: -normWidth, dy: 0 },              // card goes left and down
     'bottom-left': { dx: 0, dy: -normHeight },           // card goes right and up
-    'bottom-right': { dx: -normWidth, dy: -normHeight }  // card goes left and up
+    'bottom-right': { dx: -normWidth, dy: -normHeight }, // card goes left and up
+    'top-right': { dx: -normWidth, dy: 0 }               // card goes left and down
   };
+  
+  // Order to try corners
+  const cornerOrder = ['top-left', 'bottom-left', 'bottom-right', 'top-right'];
   
   // Get bounding box for a card at position with given corner anchor
   const getBoundingBox = (pos, corner) => {
@@ -63,68 +67,58 @@ function computeCardAnchors(cards) {
     };
   };
   
-  // Check if two bounding boxes overlap
-  const boxesOverlap = (a, b) => {
-    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
-  };
-  
-  // Calculate overlap area between two boxes
-  const getOverlapArea = (a, b) => {
-    if (!boxesOverlap(a, b)) return 0;
+  // Calculate overlap percentage between two boxes (relative to box A's area)
+  const getOverlapPercentage = (a, b) => {
+    // Check if boxes overlap at all
+    if (a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom) {
+      return 0;
+    }
+    
     const overlapWidth = Math.min(a.right, b.right) - Math.max(a.left, b.left);
     const overlapHeight = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-    return overlapWidth * overlapHeight;
+    const overlapArea = overlapWidth * overlapHeight;
+    const areaA = (a.right - a.left) * (a.bottom - a.top);
+    
+    return overlapArea / areaA;
   };
   
-  // Sort cards by position (top-to-bottom, left-to-right) for consistent processing
-  const sortedCards = [...cardPositions].sort((a, b) => {
-    const yDiff = a.y - b.y;
-    if (Math.abs(yDiff) > 0.05) return yDiff;
-    return a.x - b.x;
-  });
+  // Get maximum overlap percentage with any placed card
+  const getMaxOverlap = (box, placedBoxes) => {
+    let maxOverlap = 0;
+    for (const placed of placedBoxes) {
+      const overlap = getOverlapPercentage(box, placed);
+      if (overlap > maxOverlap) {
+        maxOverlap = overlap;
+      }
+    }
+    return maxOverlap;
+  };
+  
+  // Sort cards by latitude (top to bottom) for consistent processing
+  const sortedCards = [...cardPositions].sort((a, b) => a.y - b.y);
   
   const anchors = {};
-  const placedBoxes = []; // Track placed card bounding boxes
+  const placedBoxes = [];
   
-  // Greedy assignment: for each card, choose corner with least overlap
   for (const card of sortedCards) {
     let bestCorner = 'top-left';
     let bestOverlap = Infinity;
     
-    // Preferred corner based on position (star on right -> card goes left, etc.)
-    const preferredCorners = [];
-    if (card.x > 0.5) {
-      // Star on right side of globe -> prefer cards extending left
-      preferredCorners.push('top-right', 'bottom-right');
-    } else {
-      // Star on left side -> prefer cards extending right
-      preferredCorners.push('top-left', 'bottom-left');
-    }
-    if (card.y > 0.5) {
-      // Star on bottom -> prefer cards extending up
-      preferredCorners.push('bottom-left', 'bottom-right');
-    } else {
-      // Star on top -> prefer cards extending down
-      preferredCorners.push('top-left', 'top-right');
-    }
-    
-    // Try all corners, but weight preferred ones
-    for (const corner of Object.keys(corners)) {
+    // Try corners in order: top-left → bottom-left → bottom-right → top-right
+    for (const corner of cornerOrder) {
       const box = getBoundingBox(card, corner);
+      const maxOverlap = getMaxOverlap(box, placedBoxes);
       
-      // Calculate total overlap with all placed cards
-      let totalOverlap = 0;
-      for (const placedBox of placedBoxes) {
-        totalOverlap += getOverlapArea(box, placedBox);
+      // If overlap is less than 50%, use this corner
+      if (maxOverlap < 0.5) {
+        bestCorner = corner;
+        bestOverlap = maxOverlap;
+        break; // Found acceptable position
       }
       
-      // Prefer certain corners based on position (small bonus)
-      if (preferredCorners.includes(corner)) {
-        totalOverlap -= 0.0001;
-      }
-      
-      if (totalOverlap < bestOverlap) {
-        bestOverlap = totalOverlap;
+      // Track best option in case all have >50% overlap
+      if (maxOverlap < bestOverlap) {
+        bestOverlap = maxOverlap;
         bestCorner = corner;
       }
     }
@@ -145,13 +139,12 @@ function App() {
   const [currentPage, setCurrentPage] = useState('globe');
   const { cards, loading, error, refetch } = useCards();
   const { groups, refetch: refetchGroups } = useGroups();
-  const [selectedCards, setSelectedCards] = useState([]); // Cards with open popups
+  const [selectedCards, setSelectedCards] = useState([]);
   const [focusedCard, setFocusedCard] = useState(null);
   const [focusTrigger, setFocusTrigger] = useState(0);
   const [autoRotate, setAutoRotate] = useState(true);
   const [markerVisibility, setMarkerVisibility] = useState({});
   
-  // Visibility filter - null means show all (All Members active by default)
   const [visibleCardIds, setVisibleCardIds] = useState(null);
   
   // Pre-computed card anchors (computed once when cards load)
@@ -159,12 +152,10 @@ function App() {
     return computeCardAnchors(cards);
   }, [cards]);
   
-  // Check for embed mode via URL parameter
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const isEmbedMode = urlParams.get('embed') === 'true';
   const embedGroupId = urlParams.get('group');
   
-  // Get embed group info
   const embedGroup = useMemo(() => {
     if (!embedGroupId || embedGroupId === 'all') return null;
     return groups.find(g => g.id === embedGroupId);
@@ -175,16 +166,13 @@ function App() {
     return embedGroup?.name || 'All Members';
   }, [embedGroupId, embedGroup]);
   
-  // Track if all cards are shown in embed mode
   const [embedShowAll, setEmbedShowAll] = useState(false);
   const [notification, setNotification] = useState(null);
   const [embedInitialized, setEmbedInitialized] = useState(false);
   
-  // Auto-rotate timer - restart rotation after 5s of inactivity
   const autoRotateTimer = useRef(null);
   const lastInteractionTime = useRef(Date.now());
 
-  // Reset auto-rotate timer on any interaction
   const resetAutoRotateTimer = useCallback(() => {
     lastInteractionTime.current = Date.now();
     setAutoRotate(false);
@@ -198,7 +186,6 @@ function App() {
     }, 5000);
   }, []);
 
-  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (autoRotateTimer.current) {
@@ -207,16 +194,13 @@ function App() {
     };
   }, []);
 
-  // Initialize embed mode - show group's cards as visible
   useEffect(() => {
     if (!isEmbedMode || embedInitialized || !cards || cards.length === 0) return;
     
     let cardsToShow;
     if (embedGroupId && embedGroupId !== 'all' && embedGroup) {
-      // Show only the selected group's members
       cardsToShow = cards.filter(c => embedGroup.memberIds?.includes(c.id));
     } else {
-      // Show all cards
       cardsToShow = cards;
     }
     
@@ -225,8 +209,6 @@ function App() {
     setEmbedInitialized(true);
   }, [isEmbedMode, embedInitialized, cards, embedGroupId, embedGroup]);
 
-
-  // Check for notification from email action redirect (using hash params for GitHub Pages)
   useEffect(() => {
   const checkNotification = () => {
     let params;
@@ -242,7 +224,6 @@ function App() {
     if (notifType && message) {
       setNotification({ type: notifType, message: decodeURIComponent(message) });
       
-      // Clean URL
       const basePath = import.meta.env.BASE_URL || '/';
       window.history.replaceState({}, '', basePath);
       
@@ -250,18 +231,14 @@ function App() {
     }
   };
   
-  // Check on mount
   checkNotification();
   
-  // Also listen for hash changes
   window.addEventListener('hashchange', checkNotification);
   return () => window.removeEventListener('hashchange', checkNotification);
   }, []);
 
-  // Toggle card visibility (show/hide star on globe)
   const handleToggleCardVisibility = useCallback((cardId) => {
     setVisibleCardIds(prev => {
-      // If null (show all), create a set with all cards except this one
       if (prev === null) {
         const allIds = new Set(cards.map(c => c.id));
         allIds.delete(cardId);
@@ -279,7 +256,6 @@ function App() {
         newSet.add(cardId);
       }
       
-      // If all cards visible, return null
       if (newSet.size === cards.length) {
         return null;
       }
@@ -288,23 +264,21 @@ function App() {
     });
   }, [cards, focusedCard]);
 
-const handleMarkerClick = useCallback((card) => {
-  resetAutoRotateTimer();
-  
-  // Only close if clicking the SAME star that's currently focused
-  if (focusedCard === card.id) {
-    setSelectedCards(prev => prev.filter(id => id !== card.id));
-    setFocusedCard(null);
-    return;
-  }
-  
-  // Otherwise open (if not already) and focus
-  setSelectedCards(prev => {
-    if (prev.includes(card.id)) return prev;
-    return [...prev, card.id];
-  });
-  setFocusedCard(card.id);
-}, [resetAutoRotateTimer, focusedCard]);
+  const handleMarkerClick = useCallback((card) => {
+    resetAutoRotateTimer();
+    
+    if (focusedCard === card.id) {
+      setSelectedCards(prev => prev.filter(id => id !== card.id));
+      setFocusedCard(null);
+      return;
+    }
+    
+    setSelectedCards(prev => {
+      if (prev.includes(card.id)) return prev;
+      return [...prev, card.id];
+    });
+    setFocusedCard(card.id);
+  }, [resetAutoRotateTimer, focusedCard]);
 
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
@@ -314,7 +288,6 @@ const handleMarkerClick = useCallback((card) => {
   }, [focusedCard]);
 
   const handleFocusCard = (id) => {
-    // If clicking same card or star, unfocus
     if (focusedCard === id) {
       setFocusedCard(null);
     } else {
@@ -322,19 +295,16 @@ const handleMarkerClick = useCallback((card) => {
     }
   };
 
-  // Toggle card popup (from dropdown)
   const toggleCardPopup = useCallback((cardId) => {
     resetAutoRotateTimer();
     setSelectedCards(prev => {
       const isOpen = prev.includes(cardId);
       if (isOpen) {
-        // Close the card
         if (focusedCard === cardId) {
           setFocusedCard(null);
         }
         return prev.filter(id => id !== cardId);
       } else {
-        // Open the card and focus on it
         const card = cards.find(c => c.id === cardId);
         if (card) {
           setFocusedCard(cardId);
@@ -345,7 +315,6 @@ const handleMarkerClick = useCallback((card) => {
     });
   }, [cards, focusedCard, resetAutoRotateTimer]);
 
-  // Open all visible cards
   const openAllCards = useCallback(() => {
     resetAutoRotateTimer();
     const visibleIds = visibleCardIds === null 
@@ -354,13 +323,11 @@ const handleMarkerClick = useCallback((card) => {
     setSelectedCards(visibleIds);
   }, [cards, visibleCardIds, resetAutoRotateTimer]);
 
-  // Close all cards
   const closeAllCards = useCallback(() => {
     setSelectedCards([]);
     setFocusedCard(null);
   }, []);
 
-  // Toggle all cards in embed mode
   const toggleEmbedCards = useCallback(() => {
     if (embedShowAll) {
       setSelectedCards([]);
@@ -376,14 +343,12 @@ const handleMarkerClick = useCallback((card) => {
     setMarkerVisibility(data);
   }, []);
 
-  // Track globe interaction
   const handleGlobeInteraction = useCallback(() => {
     resetAutoRotateTimer();
   }, [resetAutoRotateTimer]);
 
   const handleFocusLost = useCallback(() => {
     setFocusedCard(null);
-    // Don't close the card, just release focus so user can rotate/zoom freely
   }, []);
 
   if (loading) return <LoadingScreen />;

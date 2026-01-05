@@ -139,22 +139,22 @@ body {
   position: absolute;
   pointer-events: auto;
   will-change: transform, opacity, z-index;
-  /* NO transitions on left/top - cards must stick to globe instantly */
-  /* Only transition scale and opacity for smooth focus/hover effects */
+  /* NO transitions on left/top - cards stick to globe instantly */
+  /* Only scale and opacity transitions for focus/hover effects */
   transition: 
-    transform 0.15s ease-out, 
-    opacity 0.15s ease-out;
+    transform 0.12s ease-out, 
+    opacity 0.12s ease-out;
   cursor: pointer;
 }
 
 .popup-card.focused .popup-card-inner {
   border-color: var(--accent-purple);
-  box-shadow: 0 6px 24px rgba(147, 51, 234, 0.3);
+  box-shadow: 0 4px 16px rgba(147, 51, 234, 0.3);
 }
 
 .popup-card.hovered .popup-card-inner {
   border-color: #c4b5fd;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
 }
 
 .popup-card-inner {
@@ -164,8 +164,8 @@ body {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 .card-image-wrapper {
@@ -246,7 +246,7 @@ body {
   border-left: 1px solid #e5e7eb;
   cursor: pointer;
   color: #9ca3af;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .card-close-btn:hover {
