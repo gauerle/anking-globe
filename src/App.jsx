@@ -1,4 +1,4 @@
-console.log('APP VERSION 4 LOADED');
+console.log('APP VERSION 5 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -48,6 +48,8 @@ function App() {
   // Auto-rotate timer - restart rotation after 5s of inactivity
   const autoRotateTimer = useRef(null);
   const lastInteractionTime = useRef(Date.now());
+  
+  // Stable card placements ref - stores placement decisions that persist
   const cardPlacementsRef = useRef({});
 
   // Reset auto-rotate timer on any interaction
@@ -123,6 +125,101 @@ function App() {
   window.addEventListener('hashchange', checkNotification);
   return () => window.removeEventListener('hashchange', checkNotification);
   }, []);
+
+  // Calculate stable placements for all selected cards
+  const cardPlacements = useMemo(() => {
+    const cardWidth = 220;
+    const cardHeight = 58;
+    const verticalGap = 8;
+    const screenCenterX = typeof window !== 'undefined' ? window.innerWidth / 2 : 500;
+    
+    // Get all visible selected cards with their screen positions
+    const visibleCards = selectedCards
+      .map(cardId => {
+        const visibility = markerVisibility[cardId];
+        const cardData = cards?.find(c => c.id === cardId);
+        if (!visibility || !visibility.visible || !cardData) return null;
+        return {
+          id: cardId,
+          screenX: visibility.screenPos.x,
+          screenY: visibility.screenPos.y,
+          card: cardData
+        };
+      })
+      .filter(Boolean);
+    
+    // Sort by screen Y position for consistent processing
+    visibleCards.sort((a, b) => a.screenY - b.screenY);
+    
+    const placements = {};
+    const placedCards = { left: [], right: [] };
+    
+    for (const vc of visibleCards) {
+      // Check if we already have a stable placement for this card
+      const existingPlacement = cardPlacementsRef.current[vc.id];
+      
+      // Determine preferred side based on star position
+      const preferredSide = vc.screenX > screenCenterX ? 'left' : 'right';
+      
+      // Use existing side if available (stability), otherwise use preferred
+      const side = existingPlacement?.side || preferredSide;
+      
+      // Calculate base Y position (center on star)
+      const baseY = vc.screenY - (cardHeight / 2);
+      
+      // Check for overlaps with already-placed cards on the same side
+      let offsetY = 0;
+      const sameSideCards = placedCards[side];
+      
+      for (const placed of sameSideCards) {
+        const myTop = baseY + offsetY;
+        const myBottom = myTop + cardHeight;
+        const otherTop = placed.y;
+        const otherBottom = otherTop + cardHeight;
+        
+        // Check if they overlap vertically
+        const overlaps = !(myBottom + verticalGap < otherTop || myTop > otherBottom + verticalGap);
+        
+        // Check if they're close enough horizontally to matter
+        const horizontallyClose = Math.abs(vc.screenX - placed.screenX) < cardWidth * 0.7;
+        
+        if (overlaps && horizontallyClose) {
+          // Move below the other card
+          offsetY = (otherBottom + verticalGap) - baseY;
+        }
+      }
+      
+      // Store placement
+      placements[vc.id] = { 
+        side, 
+        offsetY
+      };
+      
+      // Track this card's position for subsequent overlap checks
+      placedCards[side].push({
+        y: baseY + offsetY,
+        screenX: vc.screenX
+      });
+    }
+    
+    // Update the stable ref (preserve side decisions for open cards)
+    for (const [id, placement] of Object.entries(placements)) {
+      if (!cardPlacementsRef.current[id]) {
+        cardPlacementsRef.current[id] = { side: placement.side };
+      }
+      cardPlacementsRef.current[id].offsetY = placement.offsetY;
+    }
+    
+    // Clean up placements for cards that are no longer selected
+    const selectedSet = new Set(selectedCards);
+    for (const id of Object.keys(cardPlacementsRef.current)) {
+      if (!selectedSet.has(id)) {
+        delete cardPlacementsRef.current[id];
+      }
+    }
+    
+    return placements;
+  }, [selectedCards, markerVisibility, cards]);
 
   // Toggle card visibility (show/hide star on globe)
   const handleToggleCardVisibility = useCallback((cardId) => {
