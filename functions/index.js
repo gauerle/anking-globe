@@ -98,116 +98,96 @@ async function sendAccessRequestEmail(userEmail, userName, userPicture) {
   }
   
   // Get the function URL base (for approve/deny links)
-  const projectId = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT;
-  const functionUrl = `https://us-central1-${projectId}.cloudfunctions.net/api`;
+  const baseUrl = process.env.FUNCTION_TARGET 
+    ? `https://${process.env.GCLOUD_PROJECT}.cloudfunctions.net/api`
+    : 'http://localhost:5001/anking-globe/us-central1/api';
   
-  const approveUrl = `${functionUrl}/auth/email-action?action=approve&email=${encodeURIComponent(userEmail)}`;
-  const denyUrl = `${functionUrl}/auth/email-action?action=deny&email=${encodeURIComponent(userEmail)}`;
-  
-  console.log('sendAccessRequestEmail: Sending to', admins.join(', '));
+  const approveUrl = `${baseUrl}/auth/email-action?action=approve&email=${encodeURIComponent(userEmail)}`;
+  const denyUrl = `${baseUrl}/auth/email-action?action=deny&email=${encodeURIComponent(userEmail)}`;
   
   const mailOptions = {
-    from: `"AnKing Globe" <${emailUser}>`,
-    to: admins.join(', '),
-    subject: `🌐 New Access Request: ${userName}`,
+    from: `"AnkiHub Viz" <${emailUser}>`,
+    to: admins.join(','),
+    subject: `🌍 New Access Request: ${userName || userEmail}`,
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-          <h1 style="color: white; margin: 0; font-size: 24px;">🌐 New Access Request</h1>
-        </div>
-        
-        <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 12px 12px;">
-          <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;">
-            ${userPicture ? `<img src="${userPicture}" style="width: 60px; height: 60px; border-radius: 50%; margin-bottom: 15px;" alt="Profile">` : ''}
-            <h2 style="margin: 0 0 10px 0; color: #333;">${userName}</h2>
-            <p style="margin: 0; color: #666; font-size: 14px;">${userEmail}</p>
+        <div style="background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%); border-radius: 16px; padding: 32px; color: white;">
+          <h1 style="margin: 0 0 24px 0; font-size: 24px;">🌍 New Access Request</h1>
+          
+          <div style="background: rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+            ${userPicture ? `<img src="${userPicture}" alt="" style="width: 64px; height: 64px; border-radius: 50%; margin-bottom: 12px;">` : ''}
+            <p style="margin: 0 0 8px 0; font-size: 18px; font-weight: 600;">${userName || 'Unknown User'}</p>
+            <p style="margin: 0; color: rgba(255,255,255,0.7);">${userEmail}</p>
           </div>
           
-          <p style="color: #555; margin-bottom: 25px; text-align: center;">
-            This user is requesting access to the AnKing Globe admin panel.
+          <p style="color: rgba(255,255,255,0.8); margin-bottom: 24px;">
+            This user is requesting access to the AnkiHub Viz admin panel.
           </p>
           
-          <div style="text-align: center;">
-            <a href="${approveUrl}" style="display: inline-block; background: #28a745; color: white; padding: 12px 30px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 0 10px 10px 0;">
+          <div style="display: flex; gap: 12px;">
+            <a href="${approveUrl}" style="display: inline-block; background: #22c55e; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
               ✓ Approve
             </a>
-            <a href="${denyUrl}" style="display: inline-block; background: #dc3545; color: white; padding: 12px 30px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 0 0 10px 10px;">
-              ✗ Reject
+            <a href="${denyUrl}" style="display: inline-block; background: #ef4444; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+              ✕ Deny
             </a>
           </div>
-          
-          <p style="color: #999; font-size: 12px; text-align: center; margin-top: 25px;">
-            You can also manage requests from the admin panel.
-          </p>
         </div>
+        
+        <p style="color: #666; font-size: 12px; margin-top: 16px; text-align: center;">
+          AnkiHub Viz Notification
+        </p>
       </div>
     `
   };
   
   try {
+    console.log('sendAccessRequestEmail: Attempting to send email...');
     const info = await transporter.sendMail(mailOptions);
-    console.log('sendAccessRequestEmail: SUCCESS - Message ID:', info.messageId);
+    console.log('sendAccessRequestEmail: Email sent successfully:', info.messageId);
     return true;
   } catch (error) {
-    console.error('sendAccessRequestEmail: FAILED -', error.message);
-    console.error('sendAccessRequestEmail: Full error:', JSON.stringify(error, null, 2));
+    console.error('sendAccessRequestEmail: Failed to send email:', error.message);
     return false;
   }
 }
 
-// Send welcome email to newly approved user
+// Send welcome email to approved user
 async function sendWelcomeEmail(userEmail, userName) {
   const emailUser = emailUserSecret.value();
   const emailPass = emailPassSecret.value();
   
-  console.log('sendWelcomeEmail: Starting for', userEmail);
-  
-  if (!emailUser || !emailPass) {
-    console.log('sendWelcomeEmail: Missing email credentials');
-    return false;
-  }
+  if (!emailUser || !emailPass) return false;
   
   const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
     port: 465,
     secure: true,
-    auth: {
-      user: emailUser,
-      pass: emailPass
-    }
+    auth: { user: emailUser, pass: emailPass }
   });
   
-  try {
-    await transporter.verify();
-    console.log('sendWelcomeEmail: SMTP connection verified');
-  } catch (verifyError) {
-    console.error('sendWelcomeEmail: SMTP verification failed:', verifyError.message);
-    return false;
-  }
+  const appUrl = 'https://gauerle.github.io/anking-globe/';
   
   const mailOptions = {
-    from: `"AnKing Globe" <${emailUser}>`,
+    from: `"AnkiHub Viz" <${emailUser}>`,
     to: userEmail,
-    subject: `🎉 Welcome to the AnKing Globe!`,
+    subject: '🎉 Welcome to AnkiHub Viz!',
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-          <h1 style="color: white; margin: 0; font-size: 24px;">🌐 Welcome to the Globe!</h1>
-        </div>
-        
-        <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 12px 12px;">
-          <div style="background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center;">
-            <h2 style="margin: 0 0 15px 0; color: #333;">Hi ${userName}! 👋</h2>
-            <p style="color: #555; margin: 0 0 20px 0; line-height: 1.6;">
-              Great news! Your access request has been approved. You can now access the AnKing Globe admin panel to manage your profile and connect with the community.
-            </p>
-            <a href="https://gauerle.github.io/anking-globe/" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 35px; border-radius: 8px; text-decoration: none; font-weight: 600;">
-              Visit the Globe
-            </a>
-          </div>
+        <div style="background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%); border-radius: 16px; padding: 32px; color: white;">
+          <h1 style="margin: 0 0 24px 0; font-size: 24px;">🎉 You're Approved!</h1>
           
-          <p style="color: #999; font-size: 12px; text-align: center; margin-top: 25px;">
-            Thank you for being part of the AnKing community!
+          <p style="color: rgba(255,255,255,0.9); font-size: 16px; margin-bottom: 24px;">
+            Hi ${userName || 'there'},<br><br>
+            Great news! Your request to access the AnkiHub Viz admin panel has been approved.
+          </p>
+          
+          <a href="${appUrl}" style="display: inline-block; background: #9333ea; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+            Open AnkiHub Viz →
+          </a>
+          
+          <p style="color: rgba(255,255,255,0.7); font-size: 14px; margin-top: 24px;">
+            You can now add and manage member pins on the globe.
           </p>
         </div>
       </div>
@@ -215,195 +195,234 @@ async function sendWelcomeEmail(userEmail, userName) {
   };
   
   try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log('sendWelcomeEmail: SUCCESS - Message ID:', info.messageId);
+    await transporter.sendMail(mailOptions);
     return true;
-  } catch (error) {
-    console.error('sendWelcomeEmail: FAILED -', error.message);
+  } catch {
     return false;
   }
 }
 
-async function isAdmin(email) {
-  const admins = await getAdmins();
-  return admins.includes(email.toLowerCase());
-}
+// ============ AUTHENTICATION ============
 
-async function verifyAuth(req) {
+// Check auth status
+app.post('/auth/check', async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
+    return res.json({ status: 'none' });
   }
   
   try {
-    const token = authHeader.substring(7);
+    const token = authHeader.split('Bearer ')[1];
     const decoded = await admin.auth().verifyIdToken(token);
-    return {
-      email: decoded.email.toLowerCase(),
-      name: decoded.name || decoded.email,
-      picture: decoded.picture || ''
-    };
-  } catch {
-    return null;
-  }
-}
-
-// ============ AUTH ENDPOINTS ============
-
-app.get('/auth/config', (req, res) => {
-  res.json({ configured: true, useFirebase: true });
-});
-
-app.post('/auth/check', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user) {
-    return res.status(401).json({ error: 'Invalid token' });
-  }
-  
-  // Check if user is approved
-  const userDoc = await db.collection('users').doc(user.email).get();
-  
-  if (userDoc.exists) {
-    const userData = userDoc.data();
-    if (userData.status === 'approved') {
-      return res.json({
-        status: 'approved',
-        isAdmin: await isAdmin(user.email),
-        user: { email: user.email, username: user.name, picture: user.picture }
-      });
+    const email = decoded.email?.toLowerCase();
+    
+    if (!email) return res.json({ status: 'none' });
+    
+    const admins = await getAdmins();
+    if (admins.includes(email)) {
+      return res.json({ status: 'approved', isAdmin: true });
     }
-    return res.json({ status: userData.status });
+    
+    const userDoc = await db.collection('users').doc(email).get();
+    if (!userDoc.exists) {
+      return res.json({ status: 'none' });
+    }
+    
+    const userData = userDoc.data();
+    return res.json({ 
+      status: userData.status || 'pending',
+      isAdmin: false
+    });
+  } catch (error) {
+    console.error('Auth check error:', error);
+    return res.json({ status: 'error' });
   }
-  
-  return res.json({ status: 'none' });
 });
 
-app.post('/auth/google', async (req, res) => {
-  console.log('auth/google called');
-  const user = await verifyAuth(req);
-  if (!user) {
-    console.log('auth/google: Invalid token');
-    return res.status(401).json({ error: 'Invalid token' });
+// Request access
+app.post('/auth/request', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
   
-  console.log('auth/google: User verified:', user.email);
-  const userDoc = await db.collection('users').doc(user.email).get();
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    const email = decoded.email?.toLowerCase();
+    
+    if (!email) return res.status(400).json({ error: 'No email' });
+    
+    const admins = await getAdmins();
+    if (admins.includes(email)) {
+      return res.json({ status: 'approved', isAdmin: true });
+    }
+    
+    const userDoc = await db.collection('users').doc(email).get();
+    if (userDoc.exists) {
+      return res.json({ status: userDoc.data().status });
+    }
+    
+    // Create pending request
+    const userData = {
+      email,
+      username: decoded.name || email,
+      picture: decoded.picture || '',
+      status: 'pending',
+      requestedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    await db.collection('users').doc(email).set(userData);
+    
+    // Try to send notification email
+    console.log('Attempting to send access request email...');
+    const emailSent = await sendAccessRequestEmail(email, decoded.name, decoded.picture);
+    console.log('Email send result:', emailSent);
+    
+    res.json({ status: 'pending', emailSent });
+  } catch (error) {
+    console.error('Request access error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get pending users (admin only)
+app.get('/users/pending', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
   
-  if (userDoc.exists) {
-    console.log('auth/google: User exists, status:', userDoc.data().status);
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    const admins = await getAdmins();
+    
+    if (!admins.includes(decoded.email?.toLowerCase())) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    
+    const snapshot = await db.collection('users').where('status', '==', 'pending').get();
+    const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(users);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get approved users (admin only)
+app.get('/users/approved', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    const admins = await getAdmins();
+    
+    if (!admins.includes(decoded.email?.toLowerCase())) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    
+    const snapshot = await db.collection('users').where('status', '==', 'approved').get();
+    const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(users);
+  } catch {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Approve user (admin only)
+app.post('/users/:email/approve', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    const admins = await getAdmins();
+    
+    if (!admins.includes(decoded.email?.toLowerCase())) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    
+    const email = decodeURIComponent(req.params.email).toLowerCase();
+    const userDoc = await db.collection('users').doc(email).get();
+    
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
     const userData = userDoc.data();
-    // Update name/picture
-    await db.collection('users').doc(user.email).update({
-      username: user.name,
-      picture: user.picture,
-      lastLogin: admin.firestore.FieldValue.serverTimestamp()
+    
+    await db.collection('users').doc(email).update({
+      status: 'approved',
+      approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+      approvedBy: decoded.email
     });
     
-    if (userData.status === 'approved') {
-      return res.json({
-        status: 'approved',
-        isAdmin: await isAdmin(user.email),
-        user: { email: user.email, username: user.name, picture: user.picture }
-      });
+    // Send welcome email
+    await sendWelcomeEmail(email, userData.username || email);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Approve error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Deny/delete user (admin only)
+app.delete('/users/:email', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    const admins = await getAdmins();
+    
+    if (!admins.includes(decoded.email?.toLowerCase())) {
+      return res.status(403).json({ error: 'Admin only' });
     }
-    return res.json({ status: userData.status });
+    
+    const email = decodeURIComponent(req.params.email).toLowerCase();
+    
+    // Prevent deleting admins
+    if (admins.includes(email)) {
+      return res.status(400).json({ error: 'Cannot delete admin' });
+    }
+    
+    await db.collection('users').doc(email).delete();
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
   }
-  
-  console.log('auth/google: NEW USER - creating document');
-  // New user - check if they're an admin (auto-approve)
-  const admins = await getAdmins();
-  console.log('auth/google: Admins list:', admins);
-  const isUserAdmin = admins.includes(user.email);
-  
-  // Create user document
-  await db.collection('users').doc(user.email).set({
-    email: user.email,
-    username: user.name,
-    picture: user.picture,
-    status: isUserAdmin ? 'approved' : 'pending',
-    requestedAt: admin.firestore.FieldValue.serverTimestamp(),
-    ...(isUserAdmin && { approvedAt: admin.firestore.FieldValue.serverTimestamp() })
-  });
-  
-  if (isUserAdmin) {
-    return res.json({
-      status: 'approved',
-      isAdmin: true,
-      user: { email: user.email, username: user.name, picture: user.picture }
-    });
-  }
-  
-  // Send email notification to admins for pending user
-  console.log('auth/google: Sending email notification for', user.email);
-  const emailSent = await sendAccessRequestEmail(user.email, user.name, user.picture);
-  console.log('auth/google: Email sent result:', emailSent);
-  
-  return res.json({ status: 'pending' });
 });
 
-app.get('/auth/pending', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user || !(await isAdmin(user.email))) {
-    return res.status(403).json({ error: 'Admin access required' });
+// Revoke user access (admin only)
+app.post('/users/:email/revoke', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    const decoded = await admin.auth().verifyIdToken(token);
+    const admins = await getAdmins();
+    
+    if (!admins.includes(decoded.email?.toLowerCase())) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    
+    const email = decodeURIComponent(req.params.email).toLowerCase();
+  
+    // Prevent revoking admin access
+    if (admins.includes(email)) {
+      return res.status(400).json({ error: 'Cannot revoke admin access' });
+    }
+  
+    await db.collection('users').doc(email).delete();
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Server error' });
   }
-  
-  const pendingSnapshot = await db.collection('users').where('status', '==', 'pending').get();
-  const approvedSnapshot = await db.collection('users').where('status', '==', 'approved').get();
-  
-  const pending = pendingSnapshot.docs.map(doc => doc.data());
-  const approved = approvedSnapshot.docs.map(doc => doc.data());
-  
-  res.json({ pending, approved, admins: await getAdmins() });
-});
-
-app.post('/auth/approve', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user || !(await isAdmin(user.email))) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  
-  const { email } = req.body;
-  const userDoc = await db.collection('users').doc(email.toLowerCase()).get();
-  const userData = userDoc.exists ? userDoc.data() : {};
-  
-  await db.collection('users').doc(email.toLowerCase()).update({
-    status: 'approved',
-    approvedAt: admin.firestore.FieldValue.serverTimestamp(),
-    approvedBy: user.email
-  });
-  
-  // Send welcome email
-  await sendWelcomeEmail(email, userData.username || email);
-  
-  res.json({ success: true });
-});
-
-app.post('/auth/deny', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user || !(await isAdmin(user.email))) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  
-  const { email } = req.body;
-  await db.collection('users').doc(email.toLowerCase()).delete();
-  
-  res.json({ success: true });
-});
-
-app.post('/auth/revoke', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user || !(await isAdmin(user.email))) {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  
-  const { email } = req.body;
-  const admins = await getAdmins();
-  if (admins.includes(email.toLowerCase())) {
-    return res.status(400).json({ error: 'Cannot revoke admin access' });
-  }
-  
-  await db.collection('users').doc(email.toLowerCase()).delete();
-  res.json({ success: true });
 });
 
 // Email action endpoint - handles clicks from email approve/deny buttons
@@ -498,123 +517,241 @@ app.get('/geocode', async (req, res) => {
       res.json([]);
     }
   } catch {
-    res.status(500).json({ error: 'Geocoding failed' });
+    res.json([]);
   }
 });
 
-// ============ CARDS ============
+// ============ CARDS CRUD ============
 
+// Get all cards (public)
 app.get('/cards', async (req, res) => {
   try {
-    const snapshot = await db.collection('cards').orderBy('created_at', 'desc').get();
+    const snapshot = await db.collection('cards').get();
     const cards = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(cards);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch cards' });
   }
 });
 
-app.get('/cards/:id', async (req, res) => {
-  try {
-    const doc = await db.collection('cards').doc(req.params.id).get();
-    if (!doc.exists) return res.status(404).json({ error: 'Not found' });
-    res.json({ id: doc.id, ...doc.data() });
-  } catch {
-    res.status(500).json({ error: 'Failed to fetch card' });
-  }
-});
-
+// Create card (authenticated)
 app.post('/cards', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
   
-  const userDoc = await db.collection('users').doc(user.email).get();
-  if (!userDoc.exists || userDoc.data().status !== 'approved') {
-    return res.status(403).json({ error: 'Access denied' });
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(token);
+    
+    const { name, title, university, location, lat, lng, image, starColor } = req.body;
+    if (!name || !location || lat === undefined || lng === undefined) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    const cardData = {
+      name,
+      title: title || '',
+      university: university || '',
+      location,
+      lat: parseFloat(lat),
+      lng: parseFloat(lng),
+      image: image || '',
+      starColor: starColor || '#9333ea',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    const docRef = await db.collection('cards').add(cardData);
+    res.json({ id: docRef.id, ...cardData });
+  } catch (error) {
+    console.error('Create card error:', error);
+    res.status(500).json({ error: 'Failed to create card' });
   }
-  
-  const { name, title, university, location, lat, lng, image } = req.body;
-  
-  const docRef = await db.collection('cards').add({
-    name, title, university, location,
-    lat: parseFloat(lat),
-    lng: parseFloat(lng),
-    image: image || '',
-    created_at: admin.firestore.FieldValue.serverTimestamp(),
-    created_by: user.email
-  });
-  
-  res.json({ id: docRef.id, name, title, university, location, lat, lng, image });
 });
 
+// Update card (authenticated)
 app.put('/cards/:id', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
   
-  const userDoc = await db.collection('users').doc(user.email).get();
-  if (!userDoc.exists || userDoc.data().status !== 'approved') {
-    return res.status(403).json({ error: 'Access denied' });
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(token);
+    
+    const { id } = req.params;
+    const { name, title, university, location, lat, lng, image, starColor } = req.body;
+    
+    const updateData = {
+      name,
+      title: title || '',
+      university: university || '',
+      location,
+      lat: parseFloat(lat),
+      lng: parseFloat(lng),
+      image: image || '',
+      starColor: starColor || '#9333ea',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    await db.collection('cards').doc(id).update(updateData);
+    res.json({ id, ...updateData });
+  } catch (error) {
+    console.error('Update card error:', error);
+    res.status(500).json({ error: 'Failed to update card' });
   }
-  
-  const { name, title, university, location, lat, lng, image } = req.body;
-  
-  await db.collection('cards').doc(req.params.id).update({
-    name, title, university, location,
-    lat: parseFloat(lat),
-    lng: parseFloat(lng),
-    image: image || '',
-    updated_at: admin.firestore.FieldValue.serverTimestamp(),
-    updated_by: user.email
-  });
-  
-  res.json({ id: req.params.id, name, title, university, location, lat, lng, image });
 });
 
+// Delete card (authenticated)
 app.delete('/cards/:id', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
   
-  const userDoc = await db.collection('users').doc(user.email).get();
-  if (!userDoc.exists || userDoc.data().status !== 'approved') {
-    return res.status(403).json({ error: 'Access denied' });
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(token);
+    
+    const { id } = req.params;
+    await db.collection('cards').doc(id).delete();
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete card' });
   }
-  
-  await db.collection('cards').doc(req.params.id).delete();
-  res.json({ success: true });
 });
 
-// ============ IMAGES ============
+// ============ GROUPS CRUD ============
 
+// Get all groups (public)
+app.get('/groups', async (req, res) => {
+  try {
+    const snapshot = await db.collection('groups').orderBy('name').get();
+    const groups = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json(groups);
+  } catch (error) {
+    console.error('Get groups error:', error);
+    res.status(500).json({ error: 'Failed to fetch groups' });
+  }
+});
+
+// Create group (authenticated)
+app.post('/groups', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(token);
+    
+    const { name, memberIds, color } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Group name required' });
+    }
+    
+    const groupData = {
+      name,
+      memberIds: memberIds || [],
+      color: color || '#9333ea',
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    const docRef = await db.collection('groups').add(groupData);
+    res.json({ id: docRef.id, ...groupData });
+  } catch (error) {
+    console.error('Create group error:', error);
+    res.status(500).json({ error: 'Failed to create group' });
+  }
+});
+
+// Update group (authenticated)
+app.put('/groups/:id', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(token);
+    
+    const { id } = req.params;
+    const { name, memberIds, color } = req.body;
+    
+    const updateData = {
+      name,
+      memberIds: memberIds || [],
+      color: color || '#9333ea',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+    
+    await db.collection('groups').doc(id).update(updateData);
+    res.json({ id, ...updateData });
+  } catch (error) {
+    console.error('Update group error:', error);
+    res.status(500).json({ error: 'Failed to update group' });
+  }
+});
+
+// Delete group (authenticated)
+app.delete('/groups/:id', async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+  
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(token);
+    
+    const { id } = req.params;
+    await db.collection('groups').doc(id).delete();
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete group' });
+  }
+});
+
+// ============ IMAGE STORAGE ============
+
+// Upload image
 app.post('/images/upload', async (req, res) => {
-  const user = await verifyAuth(req);
-  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
   
-  const { filename, data } = req.body;
-  if (!filename || !data) {
-    return res.status(400).json({ error: 'Filename and data required' });
+  try {
+    const token = authHeader.split('Bearer ')[1];
+    await admin.auth().verifyIdToken(token);
+    
+    const { filename, data } = req.body;
+    if (!filename || !data) {
+      return res.status(400).json({ error: 'Filename and data required' });
+    }
+    
+    // Extract base64 data
+    const base64Data = data.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    // Determine content type
+    const ext = filename.split('.').pop().toLowerCase();
+    const contentTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' };
+    const contentType = contentTypes[ext] || 'image/png';
+    
+    // Generate unique filename
+    const uniqueFilename = `cards/${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '')}`;
+    
+    const bucket = storage.bucket();
+    const file = bucket.file(uniqueFilename);
+    
+    await file.save(buffer, {
+      metadata: { contentType },
+      public: true
+    });
+    
+    await file.makePublic();
+    
+    const url = `https://storage.googleapis.com/${bucket.name}/${uniqueFilename}`;
+    res.json({ url, filename: uniqueFilename });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: 'Upload failed' });
   }
-  
-  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const uniqueName = `${Date.now()}-${safeName}`;
-  
-  const base64Data = data.replace(/^data:image\/\w+;base64,/, '');
-  const buffer = Buffer.from(base64Data, 'base64');
-  
-  const bucket = storage.bucket();
-  const file = bucket.file(`cards/${uniqueName}`);
-  
-  await file.save(buffer, {
-    metadata: { contentType: 'image/png' }
-  });
-  
-  await file.makePublic();
-  
-  const publicUrl = `https://storage.googleapis.com/${bucket.name}/cards/${uniqueName}`;
-  
-  res.json({ filename: uniqueName, url: publicUrl });
 });
 
-app.get('/images/list', async (req, res) => {
+// List images
+app.get('/images', async (req, res) => {
   try {
     const bucket = storage.bucket();
     const [files] = await bucket.getFiles({ prefix: 'cards/' });

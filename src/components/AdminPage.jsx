@@ -22,6 +22,9 @@ function AdminPage({ onBack }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [token, setToken] = useState(null);
   
+  // Tab state
+  const [activeTab, setActiveTab] = useState('members'); // 'members' or 'groups'
+  
   const [cards, setCards] = useState([]);
   const [selectedCard, setSelectedCard] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +40,14 @@ function AdminPage({ onBack }) {
   const [showUserManagement, setShowUserManagement] = useState(false);
   const [showEmbedModal, setShowEmbedModal] = useState(false);
   const [embedCopied, setEmbedCopied] = useState(false);
+  const [embedHeight, setEmbedHeight] = useState(500);
   const [notification, setNotification] = useState(null);
+  
+  // Groups state
+  const [groups, setGroups] = useState([]);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [groupFormData, setGroupFormData] = useState({ name: '', color: '#9333ea', memberIds: [] });
+  const [groupsLoading, setGroupsLoading] = useState(false);
   
   const fileInputRef = useRef(null);
 
@@ -79,103 +89,139 @@ function AdminPage({ onBack }) {
       }
       setAuthStatus(data.status);
       setIsAdmin(data.isAdmin || false);
-    } catch {
+      if (data.status === 'approved' || data.isAdmin) {
+        loadCards();
+        loadImages();
+        loadGroups();
+      }
+    } catch (err) {
+      console.error('Auth check error:', err);
       setAuthStatus('error');
     }
   };
 
+  const getAuthHeader = () => token ? { 'Authorization': `Bearer ${token}` } : {};
+
   const handleSignIn = async () => {
     try {
-      const { token: idToken } = await signInWithGoogle();
-      setToken(idToken);
-      
-      // Register/check with backend
-      const res = await fetch(`${API_BASE}/auth/google`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`
+      await signInWithGoogle();
+      const idToken = await getCurrentToken();
+      if (idToken) {
+        setToken(idToken);
+        const res = await fetch(`${API_BASE}/auth/request`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${idToken}` }
+        });
+        const data = await res.json();
+        setAuthStatus(data.status);
+        setIsAdmin(data.isAdmin || false);
+        if (data.status === 'approved' || data.isAdmin) {
+          loadCards();
+          loadImages();
+          loadGroups();
         }
-      });
-      const data = await res.json();
-      setAuthStatus(data.status);
-      setIsAdmin(data.isAdmin || false);
-    } catch (error) {
-      console.error('Sign in error:', error);
-      setAuthStatus('error');
+      }
+    } catch (err) {
+      console.error('Sign in error:', err);
     }
   };
 
   const handleSignOut = async () => {
-    await signOutUser();
-    setToken(null);
-    setCurrentUser(null);
-    setAuthStatus('none');
-    setIsAdmin(false);
+    try {
+      await signOutUser();
+      setToken(null);
+      setCurrentUser(null);
+      setAuthStatus('none');
+    } catch (err) {
+      console.error('Sign out error:', err);
+    }
   };
 
-  useEffect(() => {
-    if (authStatus === 'approved' && token) {
-      loadCards();
-      loadImages();
-      if (isAdmin) loadPendingUsers();
-    }
-  }, [authStatus, isAdmin, token]);
-
-  const getAuthHeader = useCallback(() => token ? { 'Authorization': `Bearer ${token}` } : {}, [token]);
-  
   const loadCards = async () => {
     try {
       const res = await fetch(`${API_BASE}/cards`);
-      setCards(await res.json());
-    } catch {}
+      const data = await res.json();
+      setCards(data);
+    } catch (err) {
+      console.error('Load cards error:', err);
+    }
   };
-  
+
   const loadImages = async () => {
     try {
-      const res = await fetch(`${API_BASE}/images/list`);
-      setAvailableImages(await res.json());
-    } catch {}
-  };
-  
-  const loadPendingUsers = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/auth/pending`, { headers: getAuthHeader() });
+      const res = await fetch(`${API_BASE}/images`, { headers: getAuthHeader() });
       const data = await res.json();
-      setPendingUsers(data.pending || []);
-      setApprovedUsers(data.approved || []);
-    } catch {}
+      setAvailableImages(data);
+    } catch (err) {
+      console.error('Load images error:', err);
+    }
+  };
+
+  const loadGroups = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/groups`);
+      const data = await res.json();
+      setGroups(data);
+    } catch (err) {
+      console.error('Load groups error:', err);
+    }
+  };
+
+  const loadPendingUsers = async () => {
+    if (!isAdmin) return;
+    try {
+      const [pendingRes, approvedRes] = await Promise.all([
+        fetch(`${API_BASE}/users/pending`, { headers: getAuthHeader() }),
+        fetch(`${API_BASE}/users/approved`, { headers: getAuthHeader() })
+      ]);
+      setPendingUsers(await pendingRes.json());
+      setApprovedUsers(await approvedRes.json());
+    } catch (err) {
+      console.error('Load users error:', err);
+    }
   };
 
   const approveUser = async (email) => {
-  console.log('approveUser called');
-  try {
-    await fetch(`${API_BASE}/auth/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ email }) });
-    console.log('Setting notification');
-    setNotification({ type: 'success', message: `Approved ${email}` });
-  } catch (e) {
-    console.error('Error:', e);
-    setNotification({ type: 'error', message: 'Failed to approve' });
-  }
-  loadPendingUsers();
-  setTimeout(() => setNotification(null), 4000);
-};
-  
-  const denyUser = async (email) => {
-  try {
-    await fetch(`${API_BASE}/auth/deny`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ email }) });
-    setNotification({ type: 'success', message: `Denied ${email}` });
-  } catch {
-    setNotification({ type: 'error', message: 'Failed to deny' });
-  }
-  loadPendingUsers();
-  setTimeout(() => setNotification(null), 4000);
+    try {
+      const res = await fetch(`${API_BASE}/users/${encodeURIComponent(email)}/approve`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+      if (res.ok) {
+        setNotification({ type: 'success', message: `Approved ${email}` });
+        setTimeout(() => setNotification(null), 3000);
+        loadPendingUsers();
+      }
+    } catch (err) {
+      console.error('Approve error:', err);
+    }
   };
-  
+
+  const denyUser = async (email) => {
+    try {
+      await fetch(`${API_BASE}/users/${encodeURIComponent(email)}`, {
+        method: 'DELETE',
+        headers: getAuthHeader()
+      });
+      setNotification({ type: 'success', message: `Denied ${email}` });
+      setTimeout(() => setNotification(null), 3000);
+      loadPendingUsers();
+    } catch (err) {
+      console.error('Deny error:', err);
+    }
+  };
+
   const revokeUser = async (email) => {
-    if (!window.confirm(`Revoke access for ${email}?`)) return;
-    await fetch(`${API_BASE}/auth/revoke`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ email }) });
-    loadPendingUsers();
+    if (!confirm(`Revoke access for ${email}?`)) return;
+    try {
+      await fetch(`${API_BASE}/users/${encodeURIComponent(email)}/revoke`, {
+        method: 'POST',
+        headers: getAuthHeader()
+      });
+      loadPendingUsers();
+    } catch (err) {
+      console.error('Revoke error:', err);
+    }
   };
 
   const geocodeLocation = async (query) => {
@@ -183,16 +229,21 @@ function AdminPage({ onBack }) {
     setGeocoding(true);
     try {
       const res = await fetch(`${API_BASE}/geocode?q=${encodeURIComponent(query)}`);
-      setGeocodeResults(await res.json());
-    } catch { setGeocodeResults([]); }
+      const data = await res.json();
+      setGeocodeResults(data.slice(0, 5));
+    } catch {
+      setGeocodeResults([]);
+    }
     setGeocoding(false);
   };
 
   const selectGeocode = (result) => {
-    let uni = '';
-    if (result.type === 'university' || result.class === 'amenity') uni = result.display_name.split(',')[0].trim();
-    const loc = result.address ? parseLocation(result.address) : parseLocation(result.display_name);
-    setFormData(prev => ({ ...prev, university: uni || prev.university, location: loc, lat: result.lat.toFixed(6), lng: result.lng.toFixed(6) }));
+    setFormData(prev => ({
+      ...prev,
+      location: parseLocation(result.address) || result.display_name,
+      lat: result.lat.toString(),
+      lng: result.lng.toString()
+    }));
     setGeocodeResults([]);
   };
 
@@ -279,39 +330,127 @@ function AdminPage({ onBack }) {
     const payload = { ...formData, lat: parseFloat(formData.lat), lng: parseFloat(formData.lng) };
     
     try {
-      if (selectedCard) {
-        await fetch(`${API_BASE}/cards/${selectedCard.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
+      const url = selectedCard ? `${API_BASE}/cards/${selectedCard.id}` : `${API_BASE}/cards`;
+      const method = selectedCard ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(payload)
+      });
+      
+      if (res.ok) {
+        resetForm();
+        loadCards();
       } else {
-        await fetch(`${API_BASE}/cards`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
+        const err = await res.json();
+        alert(err.error || 'Save failed');
       }
-      await loadCards();
-      resetForm();
     } catch {
-      alert('Failed to save');
+      alert('Save failed');
     }
     setLoading(false);
   };
 
-  const deleteCard = async (cardId) => {
-    if (!window.confirm('Delete this member?')) return;
-    setLoading(true);
+  const deleteCard = async (id) => {
+    if (!confirm('Delete this member?')) return;
     try {
-      await fetch(`${API_BASE}/cards/${cardId}`, { method: 'DELETE', headers: getAuthHeader() });
-      await loadCards();
-      if (selectedCard?.id === cardId) resetForm();
+      await fetch(`${API_BASE}/cards/${id}`, { method: 'DELETE', headers: getAuthHeader() });
+      loadCards();
+      if (selectedCard?.id === id) resetForm();
     } catch {
-      alert('Failed to delete');
+      alert('Delete failed');
     }
-    setLoading(false);
   };
 
-  // Embed settings
-  const [embedHeight, setEmbedHeight] = useState(500);
+  // ============ Groups Functions ============
+  
+  const resetGroupForm = () => {
+    setGroupFormData({ name: '', color: '#9333ea', memberIds: [] });
+    setSelectedGroup(null);
+  };
 
+  const selectGroupForEdit = (group) => {
+    setSelectedGroup(group);
+    setGroupFormData({
+      name: group.name || '',
+      color: group.color || '#9333ea',
+      memberIds: group.memberIds || []
+    });
+  };
+
+  const toggleMemberInGroup = (cardId) => {
+    setGroupFormData(prev => {
+      const newMemberIds = prev.memberIds.includes(cardId)
+        ? prev.memberIds.filter(id => id !== cardId)
+        : [...prev.memberIds, cardId];
+      return { ...prev, memberIds: newMemberIds };
+    });
+  };
+
+  const saveGroup = async (e) => {
+    e.preventDefault();
+    if (!groupFormData.name) {
+      alert('Please enter a group name');
+      return;
+    }
+    
+    setGroupsLoading(true);
+    
+    try {
+      const url = selectedGroup ? `${API_BASE}/groups/${selectedGroup.id}` : `${API_BASE}/groups`;
+      const method = selectedGroup ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        body: JSON.stringify(groupFormData)
+      });
+      
+      if (res.ok) {
+        resetGroupForm();
+        loadGroups();
+        setNotification({ type: 'success', message: selectedGroup ? 'Group updated' : 'Group created' });
+        setTimeout(() => setNotification(null), 3000);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Save failed');
+      }
+    } catch {
+      alert('Save failed');
+    }
+    setGroupsLoading(false);
+  };
+
+  const deleteGroup = async (id) => {
+    if (!confirm('Delete this group?')) return;
+    try {
+      await fetch(`${API_BASE}/groups/${id}`, { method: 'DELETE', headers: getAuthHeader() });
+      loadGroups();
+      if (selectedGroup?.id === id) resetGroupForm();
+      setNotification({ type: 'success', message: 'Group deleted' });
+      setTimeout(() => setNotification(null), 3000);
+    } catch {
+      alert('Delete failed');
+    }
+  };
+
+  // Embed code generation
+  const [embedGroup, setEmbedGroup] = useState('all');
+  
   const getEmbedUrl = () => {
-    // Use the full URL including base path for GitHub Pages
-    const baseUrl = window.location.origin + import.meta.env.BASE_URL;
-    return `${baseUrl}?embed=true`;
+    const base = window.location.origin + (import.meta.env.BASE_URL || '/');
+    const params = new URLSearchParams({ embed: 'true' });
+    if (embedGroup && embedGroup !== 'all') {
+      params.set('group', embedGroup);
+    }
+    return `${base}?${params.toString()}`;
+  };
+
+  const getEmbedGroupName = () => {
+    if (embedGroup === 'all') return 'All Members';
+    const group = groups.find(g => g.id === embedGroup);
+    return group ? group.name : 'All Members';
   };
 
   const generateIframeCode = () => {
@@ -417,6 +556,20 @@ function AdminPage({ onBack }) {
             </p>
             
             <div className="embed-setting">
+              <label>Group to display:</label>
+              <select 
+                value={embedGroup} 
+                onChange={e => setEmbedGroup(e.target.value)}
+                className="embed-group-select"
+              >
+                <option value="all">All Members</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="embed-setting">
               <label>Height:</label>
               <div className="embed-height-input">
                 <input 
@@ -428,6 +581,10 @@ function AdminPage({ onBack }) {
                 />
                 <span>px</span>
               </div>
+            </div>
+            
+            <div className="embed-info">
+              <span>📍 Footer will show: <strong>{getEmbedGroupName()}</strong></span>
             </div>
             
             <div className="embed-preview">
@@ -464,56 +621,181 @@ function AdminPage({ onBack }) {
         </div>
       )}
 
-      <div className="admin-content">
-        <div className="admin-form-panel">
-          <h2>{selectedCard ? 'Edit Member' : 'Add New Member'}</h2>
-          <form onSubmit={saveCard}>
-            <div className="form-group"><label>Name *</label><input type="text" value={formData.name} onChange={e => handleFormChange('name', e.target.value)} placeholder="John Doe" required/></div>
-            <div className="form-group"><label>Title / Role</label><input type="text" value={formData.title} onChange={e => handleFormChange('title', e.target.value)} placeholder="Medical Student..."/></div>
-            <div className="form-group"><label>University (type to search)</label><input type="text" value={formData.university} onChange={e => handleFormChange('university', e.target.value)} placeholder="e.g. Harvard Medical School"/>
-              {geocoding && formData.university && <div className="geocode-loading">Searching...</div>}
-              {geocodeResults.length > 0 && formData.university && <ul className="geocode-results">{geocodeResults.map((r,i) => <li key={i} onClick={() => selectGeocode(r)}><span className="result-name">{r.display_name}</span><span className="result-coords">{r.lat.toFixed(4)}, {r.lng.toFixed(4)}</span></li>)}</ul>}
-            </div>
-            <div className="form-group"><label>Location * (City, Region, Country)</label><input type="text" value={formData.location} onChange={e => handleFormChange('location', e.target.value)} placeholder="Boston, MA, USA" required/>
-              {geocoding && !formData.university && <div className="geocode-loading">Searching...</div>}
-              {geocodeResults.length > 0 && !formData.university && <ul className="geocode-results">{geocodeResults.map((r,i) => <li key={i} onClick={() => selectGeocode(r)}><span className="result-name">{r.display_name}</span><span className="result-coords">{r.lat.toFixed(4)}, {r.lng.toFixed(4)}</span></li>)}</ul>}
-            </div>
-            <div className="form-row">
-              <div className="form-group"><label>Latitude *</label><input type="number" step="any" value={formData.lat} onChange={e => handleFormChange('lat', e.target.value)} placeholder="42.3601" required/></div>
-              <div className="form-group"><label>Longitude *</label><input type="number" step="any" value={formData.lng} onChange={e => handleFormChange('lng', e.target.value)} placeholder="-71.0589" required/></div>
-            </div>
-            <div className="form-group">
-              <label>Profile Image</label>
-              <div className="image-input-row">
-                <select value={formData.image} onChange={e => handleFormChange('image', e.target.value)}>
-                  <option value="">No image</option>
-                  {availableImages.map(img => <option key={img} value={img}>{img}</option>)}
-                </select>
-                <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/png,image/jpeg,image/webp" style={{display:'none'}}/>
-                <button type="button" className="upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                  {uploading ? 'Uploading...' : '📤 Upload'}
-                </button>
+      {/* Tab Navigation */}
+      <div className="admin-tabs">
+        <button 
+          className={`admin-tab ${activeTab === 'members' ? 'active' : ''}`}
+          onClick={() => setActiveTab('members')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          Add Members
+        </button>
+        <button 
+          className={`admin-tab ${activeTab === 'groups' ? 'active' : ''}`}
+          onClick={() => setActiveTab('groups')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+          Subgroups
+        </button>
+      </div>
+
+      {/* Members Tab Content */}
+      {activeTab === 'members' && (
+        <div className="admin-content">
+          <div className="admin-form-panel">
+            <h2>{selectedCard ? 'Edit Member' : 'Add New Member'}</h2>
+            <form onSubmit={saveCard}>
+              <div className="form-group"><label>Name *</label><input type="text" value={formData.name} onChange={e => handleFormChange('name', e.target.value)} placeholder="John Doe" required/></div>
+              <div className="form-group"><label>Title / Role</label><input type="text" value={formData.title} onChange={e => handleFormChange('title', e.target.value)} placeholder="Medical Student..."/></div>
+              <div className="form-group"><label>University (type to search)</label><input type="text" value={formData.university} onChange={e => handleFormChange('university', e.target.value)} placeholder="e.g. Harvard Medical School"/>
+                {geocoding && formData.university && <div className="geocode-loading">Searching...</div>}
+                {geocodeResults.length > 0 && formData.university && <ul className="geocode-results">{geocodeResults.map((r,i) => <li key={i} onClick={() => selectGeocode(r)}><span className="result-name">{r.display_name}</span><span className="result-coords">{r.lat.toFixed(4)}, {r.lng.toFixed(4)}</span></li>)}</ul>}
               </div>
-              {formData.image && <div className="image-preview"><img src={getImageUrl(formData.image)} alt="Preview"/></div>}
+              <div className="form-group"><label>Location * (City, Region, Country)</label><input type="text" value={formData.location} onChange={e => handleFormChange('location', e.target.value)} placeholder="Boston, MA, USA" required/>
+                {geocoding && !formData.university && <div className="geocode-loading">Searching...</div>}
+                {geocodeResults.length > 0 && !formData.university && <ul className="geocode-results">{geocodeResults.map((r,i) => <li key={i} onClick={() => selectGeocode(r)}><span className="result-name">{r.display_name}</span><span className="result-coords">{r.lat.toFixed(4)}, {r.lng.toFixed(4)}</span></li>)}</ul>}
+              </div>
+              <div className="form-row">
+                <div className="form-group"><label>Latitude *</label><input type="number" step="any" value={formData.lat} onChange={e => handleFormChange('lat', e.target.value)} placeholder="42.3601" required/></div>
+                <div className="form-group"><label>Longitude *</label><input type="number" step="any" value={formData.lng} onChange={e => handleFormChange('lng', e.target.value)} placeholder="-71.0589" required/></div>
+              </div>
+              <div className="form-group">
+                <label>Profile Image</label>
+                <div className="image-input-row">
+                  <select value={formData.image} onChange={e => handleFormChange('image', e.target.value)}>
+                    <option value="">No image</option>
+                    {availableImages.map(img => <option key={img} value={img}>{img}</option>)}
+                  </select>
+                  <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/png,image/jpeg,image/webp" style={{display:'none'}}/>
+                  <button type="button" className="upload-btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                    {uploading ? 'Uploading...' : '📤 Upload'}
+                  </button>
+                </div>
+                {formData.image && <div className="image-preview"><img src={getImageUrl(formData.image)} alt="Preview"/></div>}
+              </div>
+              <div className="form-actions"><button type="submit" className="primary" disabled={loading}>{loading ? 'Saving...' : (selectedCard ? 'Update' : 'Add Member')}</button>{selectedCard && <button type="button" className="secondary" onClick={resetForm}>Cancel</button>}</div>
+            </form>
+          </div>
+          
+          <div className="admin-table-panel">
+            <div className="table-header"><h2>Members ({cards.length})</h2></div>
+            <div className="table-container">
+              <table><thead><tr><th>Image</th><th>Name</th><th>Title</th><th>University</th><th>Location</th><th>Lat</th><th>Lng</th><th>Actions</th></tr></thead>
+                <tbody>{cards.map(c => <tr key={c.id} className={selectedCard?.id === c.id ? 'selected' : ''} onClick={() => selectCardForEdit(c)}>
+                  <td className="img-cell">{c.image ? <img src={getImageUrl(c.image)} alt={c.name}/> : <div className="no-image">?</div>}</td>
+                  <td className="name-cell">{c.name}</td><td>{c.title || '-'}</td><td className="uni-cell">{c.university || '-'}</td><td className="location-cell">{c.location}</td>
+                  <td className="coord-cell">{c.lat?.toFixed(2)}</td><td className="coord-cell">{c.lng?.toFixed(2)}</td>
+                  <td className="actions-cell"><button className="edit-btn" onClick={e => { e.stopPropagation(); selectCardForEdit(c); }}>Edit</button><button className="delete-btn" onClick={e => { e.stopPropagation(); deleteCard(c.id); }}>Delete</button></td>
+                </tr>)}{cards.length === 0 && <tr><td colSpan="8" className="empty-row">No members yet.</td></tr>}</tbody>
+              </table>
             </div>
-            <div className="form-actions"><button type="submit" className="primary" disabled={loading}>{loading ? 'Saving...' : (selectedCard ? 'Update' : 'Add Member')}</button>{selectedCard && <button type="button" className="secondary" onClick={resetForm}>Cancel</button>}</div>
-          </form>
-        </div>
-        
-        <div className="admin-table-panel">
-          <div className="table-header"><h2>Members ({cards.length})</h2></div>
-          <div className="table-container">
-            <table><thead><tr><th>Image</th><th>Name</th><th>Title</th><th>University</th><th>Location</th><th>Lat</th><th>Lng</th><th>Actions</th></tr></thead>
-              <tbody>{cards.map(c => <tr key={c.id} className={selectedCard?.id === c.id ? 'selected' : ''} onClick={() => selectCardForEdit(c)}>
-                <td className="img-cell">{c.image ? <img src={getImageUrl(c.image)} alt={c.name}/> : <div className="no-image">?</div>}</td>
-                <td className="name-cell">{c.name}</td><td>{c.title || '-'}</td><td className="uni-cell">{c.university || '-'}</td><td className="location-cell">{c.location}</td>
-                <td className="coord-cell">{c.lat?.toFixed(2)}</td><td className="coord-cell">{c.lng?.toFixed(2)}</td>
-                <td className="actions-cell"><button className="edit-btn" onClick={e => { e.stopPropagation(); selectCardForEdit(c); }}>Edit</button><button className="delete-btn" onClick={e => { e.stopPropagation(); deleteCard(c.id); }}>Delete</button></td>
-              </tr>)}{cards.length === 0 && <tr><td colSpan="8" className="empty-row">No members yet.</td></tr>}</tbody>
-            </table>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Groups Tab Content */}
+      {activeTab === 'groups' && (
+        <div className="admin-content">
+          <div className="admin-form-panel">
+            <h2>{selectedGroup ? 'Edit Subgroup' : 'Create Subgroup'}</h2>
+            <form onSubmit={saveGroup}>
+              <div className="form-group">
+                <label>Group Name *</label>
+                <input 
+                  type="text" 
+                  value={groupFormData.name} 
+                  onChange={e => setGroupFormData(prev => ({ ...prev, name: e.target.value }))} 
+                  placeholder="e.g. Editors, Reviewers, US Team"
+                  required
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Members ({groupFormData.memberIds.length} selected)</label>
+                <div className="member-select-list">
+                  {cards.map(card => (
+                    <label key={card.id} className="member-select-item">
+                      <input
+                        type="checkbox"
+                        checked={groupFormData.memberIds.includes(card.id)}
+                        onChange={() => toggleMemberInGroup(card.id)}
+                      />
+                      <span className="member-select-name">{card.name}</span>
+                      <span className="member-select-location">{card.location}</span>
+                    </label>
+                  ))}
+                  {cards.length === 0 && <p className="no-members">No members available. Add members first.</p>}
+                </div>
+              </div>
+              
+              <div className="form-actions">
+                <button type="submit" className="primary" disabled={groupsLoading}>
+                  {groupsLoading ? 'Saving...' : (selectedGroup ? 'Update Group' : 'Create Group')}
+                </button>
+                {selectedGroup && (
+                  <button type="button" className="secondary" onClick={resetGroupForm}>Cancel</button>
+                )}
+              </div>
+            </form>
+          </div>
+          
+          <div className="admin-table-panel">
+            <div className="table-header"><h2>Subgroups ({groups.length})</h2></div>
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Members</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map(g => (
+                    <tr 
+                      key={g.id} 
+                      className={selectedGroup?.id === g.id ? 'selected' : ''}
+                      onClick={() => selectGroupForEdit(g)}
+                    >
+                      <td className="name-cell">{g.name}</td>
+                      <td>
+                        <span className="member-count">{g.memberIds?.length || 0}</span>
+                        {g.memberIds?.length > 0 && (
+                          <span className="member-preview">
+                            {g.memberIds.slice(0, 3).map(id => {
+                              const card = cards.find(c => c.id === id);
+                              return card ? card.name.split(' ')[0] : '';
+                            }).filter(Boolean).join(', ')}
+                            {g.memberIds.length > 3 && ` +${g.memberIds.length - 3}`}
+                          </span>
+                        )}
+                      </td>
+                      <td className="actions-cell">
+                        <button className="edit-btn" onClick={e => { e.stopPropagation(); selectGroupForEdit(g); }}>Edit</button>
+                        <button className="delete-btn" onClick={e => { e.stopPropagation(); deleteGroup(g.id); }}>Delete</button>
+                      </td>
+                    </tr>
+                  ))}
+                  {groups.length === 0 && (
+                    <tr><td colSpan="3" className="empty-row">No subgroups yet. Create one to organize members.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {notification && (
         <div className={`toast-notification ${notification.type}`}>
           {notification.type === 'success' ? '✓' : 'ℹ'} {notification.message}

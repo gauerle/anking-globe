@@ -1,30 +1,49 @@
-console.log('APP VERSION 2 LOADED');
+console.log('APP VERSION 4 LOADED');
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
 import ControlsPanel from './components/ControlsPanel';
 import PopupCard from './components/PopupCard';
 import LoadingScreen from './components/LoadingScreen';
 import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
+import { useGroups } from './hooks/useGroups';
 
 
 function App() {
   
   const [currentPage, setCurrentPage] = useState('globe');
   const { cards, loading, error, refetch } = useCards();
+  const { groups, refetch: refetchGroups } = useGroups();
   const [selectedCards, setSelectedCards] = useState([]); // Cards with open popups
   const [focusedCard, setFocusedCard] = useState(null);
   const [focusTrigger, setFocusTrigger] = useState(0);
   const [autoRotate, setAutoRotate] = useState(true);
   const [markerVisibility, setMarkerVisibility] = useState({});
   
+  // Visibility filter - null means show all (All Members active by default)
+  const [visibleCardIds, setVisibleCardIds] = useState(null);
+  
   // Check for embed mode via URL parameter
-  const isEmbedMode = new URLSearchParams(window.location.search).get('embed') === 'true';
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const isEmbedMode = urlParams.get('embed') === 'true';
+  const embedGroupId = urlParams.get('group');
+  
+  // Get embed group info
+  const embedGroup = useMemo(() => {
+    if (!embedGroupId || embedGroupId === 'all') return null;
+    return groups.find(g => g.id === embedGroupId);
+  }, [embedGroupId, groups]);
+  
+  const embedGroupName = useMemo(() => {
+    if (!embedGroupId || embedGroupId === 'all') return 'All Members';
+    return embedGroup?.name || 'All Members';
+  }, [embedGroupId, embedGroup]);
   
   // Track if all cards are shown in embed mode
   const [embedShowAll, setEmbedShowAll] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [embedInitialized, setEmbedInitialized] = useState(false);
   
   // Auto-rotate timer - restart rotation after 5s of inactivity
   const autoRotateTimer = useRef(null);
@@ -52,6 +71,24 @@ function App() {
       }
     };
   }, []);
+
+  // Initialize embed mode - show group's cards as visible
+  useEffect(() => {
+    if (!isEmbedMode || embedInitialized || !cards || cards.length === 0) return;
+    
+    let cardsToShow;
+    if (embedGroupId && embedGroupId !== 'all' && embedGroup) {
+      // Show only the selected group's members
+      cardsToShow = cards.filter(c => embedGroup.memberIds?.includes(c.id));
+    } else {
+      // Show all cards
+      cardsToShow = cards;
+    }
+    
+    const visibleIds = new Set(cardsToShow.map(c => c.id));
+    setVisibleCardIds(visibleIds);
+    setEmbedInitialized(true);
+  }, [isEmbedMode, embedInitialized, cards, embedGroupId, embedGroup]);
 
 
   // Check for notification from email action redirect (using hash params for GitHub Pages)
@@ -86,22 +123,53 @@ function App() {
   return () => window.removeEventListener('hashchange', checkNotification);
   }, []);
 
-  const handleMarkerClick = useCallback((card) => {
+  // Toggle card visibility (show/hide star on globe)
+  const handleToggleCardVisibility = useCallback((cardId) => {
+    setVisibleCardIds(prev => {
+      // If null (show all), create a set with all cards except this one
+      if (prev === null) {
+        const allIds = new Set(cards.map(c => c.id));
+        allIds.delete(cardId);
+        return allIds;
+      }
+      
+      const newSet = new Set(prev);
+      if (newSet.has(cardId)) {
+        newSet.delete(cardId);
+        setSelectedCards(sel => sel.filter(id => id !== cardId));
+        if (focusedCard === cardId) {
+          setFocusedCard(null);
+        }
+      } else {
+        newSet.add(cardId);
+      }
+      
+      // If all cards visible, return null
+      if (newSet.size === cards.length) {
+        return null;
+      }
+      
+      return newSet;
+    });
+  }, [cards, focusedCard]);
+
+const handleMarkerClick = useCallback((card) => {
   resetAutoRotateTimer();
   
-  // Toggle: if already open, close it
-  if (selectedCards.includes(card.id)) {
+  // Only close if clicking the SAME star that's currently focused
+  if (focusedCard === card.id) {
     setSelectedCards(prev => prev.filter(id => id !== card.id));
-    if (focusedCard === card.id) {
-      setFocusedCard(null);
-    }
+    setFocusedCard(null);
     return;
   }
   
-  // Otherwise open and focus
-  setSelectedCards(prev => [...prev, card.id]);
+  // Otherwise open (if not already) and focus
+  setSelectedCards(prev => {
+    if (prev.includes(card.id)) return prev;
+    return [...prev, card.id];
+  });
   setFocusedCard(card.id);
-  }, [resetAutoRotateTimer, focusedCard, selectedCards]);
+}, [resetAutoRotateTimer, focusedCard]);
 
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
@@ -142,11 +210,16 @@ function App() {
     });
   }, [cards, focusedCard, resetAutoRotateTimer]);
 
+  // Open all visible cards
   const openAllCards = useCallback(() => {
     resetAutoRotateTimer();
-    setSelectedCards(cards.map(c => c.id));
-  }, [cards, resetAutoRotateTimer]);
+    const visibleIds = visibleCardIds === null 
+      ? cards.map(c => c.id) 
+      : Array.from(visibleCardIds);
+    setSelectedCards(visibleIds);
+  }, [cards, visibleCardIds, resetAutoRotateTimer]);
 
+  // Close all cards
   const closeAllCards = useCallback(() => {
     setSelectedCards([]);
     setFocusedCard(null);
@@ -182,37 +255,38 @@ function App() {
   if (error) return <div className="error-screen">Error: {error}</div>;
 
   if (currentPage === 'admin') {
-    return <AdminPage onBack={() => { setCurrentPage('globe'); refetch(); }} />;
+    return <AdminPage onBack={() => { setCurrentPage('globe'); refetch(); refetchGroups(); }} />;
   }
 
-  const countryCount = new Set(cards.map(c => c.location.split(',').pop()?.trim())).size;
-  const selectedCardObjects = cards.filter(c => selectedCards.includes(c.id));
+  const countryCount = cards ? new Set(cards.map(c => c.location?.split(',').pop()?.trim())).size : 0;
+  const selectedCardObjects = cards ? cards.filter(c => selectedCards.includes(c.id)) : [];
   const focusKey = focusedCard;
 
   return (
     <>
-      {currentPage === 'admin' ? (
-        <AdminPage onBack={() => { setCurrentPage('globe'); refetch(); }} />
-      ) : (
-        <div className={`globe-container ${isEmbedMode ? 'embed-mode' : ''}`}>
-          <Globe
-            cards={cards}
-            selectedCards={selectedCards}
-            autoRotate={autoRotate}
-            onMarkerClick={handleMarkerClick}
-            onMarkerVisibilityChange={handleMarkerVisibilityChange}
-            onInteraction={handleGlobeInteraction}
-            focusCardId={focusKey}
-            onFocusLost={handleFocusLost}
-          />
+      <div className={`globe-container ${isEmbedMode ? 'embed-mode' : ''}`}>
+        <Globe
+          cards={cards || []}
+          selectedCards={selectedCards}
+          autoRotate={autoRotate}
+          onMarkerClick={handleMarkerClick}
+          onMarkerVisibilityChange={handleMarkerVisibilityChange}
+          onInteraction={handleGlobeInteraction}
+          focusCardId={focusKey}
+          onFocusLost={handleFocusLost}
+          visibleCardIds={visibleCardIds}
+        />
 
           {!isEmbedMode && (
             <ControlsPanel
               cards={cards}
+              groups={groups}
               selectedCards={selectedCards}
+              visibleCardIds={visibleCardIds}
               autoRotate={autoRotate}
               onAutoRotateChange={setAutoRotate}
               onToggleCard={toggleCardPopup}
+              onToggleCardVisibility={handleToggleCardVisibility}
               onOpenAll={openAllCards}
               onCloseAll={closeAllCards}
               onManageClick={() => setCurrentPage('admin')}
@@ -236,15 +310,13 @@ function App() {
             <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="globe-logo" />
           </div>
 
-          {!isEmbedMode && (
-            <div className="globe-footer">
-              AnKing Step Deck Maintainers · 2025
-            </div>
-          )}
+          <div className="globe-footer">
+            {isEmbedMode ? embedGroupName : 'AnKing Step Deck Maintainers · 2025'}
+          </div>
 
           <div className="globe-stats">
             <div className="stat-item">
-              <div className="stat-value">{cards.length}</div>
+              <div className="stat-value">{isEmbedMode ? (visibleCardIds?.size ?? (cards?.length || 0)) : (cards?.length || 0)}</div>
               <div className="stat-label">Active Members</div>
             </div>
             <div className="stat-item">
@@ -253,12 +325,10 @@ function App() {
             </div>
           </div>
 
-          {!isEmbedMode && (
-            <div className="instructions">
-              <kbd>Drag</kbd> to rotate · <kbd>Scroll</kbd> to zoom<br />
-              Click markers to toggle cards
-            </div>
-          )}
+          <div className="instructions">
+            <kbd>Drag</kbd> to rotate · <kbd>Scroll</kbd> to zoom<br />
+            Click markers to toggle cards
+          </div>
           
           {isEmbedMode && (
             <>
@@ -281,14 +351,9 @@ function App() {
                   </>
                 )}
               </button>
-              
-              <div className="embed-watermark">
-                AnKing Step Deck Maintainers
-              </div>
             </>
           )}
         </div>
-      )}
       
       {notification && (
         <div className={`toast-notification ${notification.type}`}>

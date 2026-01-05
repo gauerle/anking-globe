@@ -5,7 +5,7 @@ function LoadingScreen() {
     <div className="loading-screen">
       <div className="loading-content">
         <div className="loading-spinner"></div>
-        <p>Loading Globe...</p>
+        <p>Loading...</p>
       </div>
     </div>
   );

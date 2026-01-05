@@ -5,9 +5,9 @@ import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
 
 const GLOBE_RADIUS = 100;
 const LAND_ELEVATION = 3.0;
-const MARKER_SIZE = 7;
-const MARKER_OFFSET = 0.5;
-const RAY_LENGTH = 25;
+const MARKER_SIZE = 3.5;
+const MARKER_OFFSET = 0.3;
+const RAY_LENGTH = 8;
 const SKYBOX_RADIUS = 1500;
 const HOVER_DISTANCE_3D = 6;
 
@@ -18,7 +18,7 @@ const COLORS = {
 
 const DEFAULT_STAR_COLOR = '#9333ea';
 
-function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibilityChange, onInteraction, focusCardId, onFocusLost, visibleGroups }) {
+function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibilityChange, onInteraction, focusCardId, onFocusLost, visibleCardIds }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
@@ -37,12 +37,12 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const onMarkerVisibilityChangeRef = useRef(onMarkerVisibilityChange);
   const onInteractionRef = useRef(onInteraction);
   const isInitialized = useRef(false);
-  
-  const [isHovering, setIsHovering] = useState(false);
   const focusCardIdRef = useRef(focusCardId);
+  const [isHovering, setIsHovering] = useState(false);
   const savedCameraPosition = useRef(null);
   const lastHoveredId = useRef(null);
   const pendingHoverUpdate = useRef(null);
+  const visibleCardIdsRef = useRef(visibleCardIds);
   
   // Track ray opacity for smooth transitions
   const rayOpacityRef = useRef({});
@@ -68,6 +68,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   useEffect(() => {
     onInteractionRef.current = onInteraction;
   }, [onInteraction]);
+
+  useEffect(() => {
+    visibleCardIdsRef.current = visibleCardIds;
+  }, [visibleCardIds]);
 
   const createStarfieldTexture = useCallback(() => {
     const size = 4096;
@@ -377,11 +381,19 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const group = new THREE.Group();
     
     const starContainer = new THREE.Group();
-    starContainer.userData = { type: 'starContainer' };
+    // Seeded random based on card ID for consistent rotation
+    let hash = 0;
+    for (let i = 0; i < card.id.length; i++) {
+      hash = ((hash << 5) - hash) + card.id.charCodeAt(i);
+      hash |= 0;
+    }
+    const baseRotation = (Math.abs(hash) % 1000) / 1000 * Math.PI * 2;
+    starContainer.rotation.z = baseRotation;
+    starContainer.userData = { type: 'starContainer', baseRotation };
     
     const glowMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(MARKER_SIZE * 2.5, MARKER_SIZE * 2.5),
-      new THREE.MeshBasicMaterial({
+        new THREE.PlaneGeometry(MARKER_SIZE * 1.5, MARKER_SIZE * 1.5),
+        new THREE.MeshBasicMaterial({
         map: glowTexture,
         transparent: true,
         opacity: 0.3,
@@ -413,14 +425,15 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const color = card.starColor || DEFAULT_STAR_COLOR;
     const beam = createLightBeam(color);
     group.add(beam);
+    beam.rotation.z = baseRotation;
     
     rayOpacityRef.current[card.id] = 1;
     
     let lat = card.lat;
     let lng = card.lng;
     
-    const MIN_DISTANCE = 8;
-    const OFFSET_AMOUNT = 2.5;
+    const MIN_DISTANCE = 5;
+    const OFFSET_AMOUNT = 1.5;
     let attempts = 0;
     const maxAttempts = 8;
     
@@ -548,65 +561,50 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, []);
 
   const findCardAtMouse = useCallback((clientX, clientY) => {
-    const camera = cameraRef.current;
-    const container = containerRef.current;
-    const markers = markersRef.current;
+  const camera = cameraRef.current;
+  const container = containerRef.current;
+  const markers = markersRef.current;
+  
+  if (!camera || !container || markers.length === 0) return null;
+  
+  const rect = container.getBoundingClientRect();
+  
+  // Convert click to screen coordinates
+  const clickX = clientX - rect.left;
+  const clickY = clientY - rect.top;
+  
+  let closestCard = null;
+  let closestScreenDist = 25; // pixels threshold
+  
+  const screenVec = new THREE.Vector3();
+  
+  for (const marker of markers) {
+    if (!marker.visible) continue;
     
-    if (!camera || !container || markers.length === 0) return null;
+    const card = marker.userData.card;
+    if (!card) continue;
     
-    const rect = container.getBoundingClientRect();
+    const opacity = markerOpacity.current[card.id] ?? 0;
+    if (opacity < 0.3) continue;
     
-    mouseNDC.current.set(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1
-    );
+    // Project marker to screen space
+    screenVec.copy(marker.position).project(camera);
+    const markerScreenX = (screenVec.x * 0.5 + 0.5) * rect.width;
+    const markerScreenY = (-screenVec.y * 0.5 + 0.5) * rect.height;
     
-    rayOrigin.current.copy(camera.position);
-    rayDirection.current.set(mouseNDC.current.x, mouseNDC.current.y, 0.5)
-      .unproject(camera)
-      .sub(rayOrigin.current)
-      .normalize();
+    // Screen distance in pixels
+    const dx = clickX - markerScreenX;
+    const dy = clickY - markerScreenY;
+    const screenDist = Math.sqrt(dx * dx + dy * dy);
     
-    let closestCard = null;
-    let closestDist = HOVER_DISTANCE_3D;
-    
-    const threshold = lastHoveredId.current ? HOVER_DISTANCE_3D * 1.2 : HOVER_DISTANCE_3D;
-    
-    if (lastHoveredId.current) {
-      for (const marker of markers) {
-        const card = marker.userData.card;
-        if (card && card.id === lastHoveredId.current && marker.visible) {
-          const opacity = markerOpacity.current[card.id] ?? 0;
-          if (opacity > 0.3) {
-            const dist = distanceFromRayToPoint(rayOrigin.current, rayDirection.current, marker.position);
-            if (dist < threshold) {
-              return card;
-            }
-          }
-          break;
-        }
-      }
+    if (screenDist < closestScreenDist) {
+      closestScreenDist = screenDist;
+      closestCard = card;
     }
-    
-    for (const marker of markers) {
-      if (!marker.visible) continue;
-      
-      const card = marker.userData.card;
-      if (!card) continue;
-      
-      const opacity = markerOpacity.current[card.id] ?? 0;
-      if (opacity < 0.3) continue;
-      
-      const dist = distanceFromRayToPoint(rayOrigin.current, rayDirection.current, marker.position);
-      
-      if (dist < closestDist) {
-        closestDist = dist;
-        closestCard = card;
-      }
     }
-    
+  
     return closestCard;
-  }, [distanceFromRayToPoint]);
+  }, []);
 
   useEffect(() => {
     if (focusCardId && focusCardId !== lastFocusId.current && cards.length > 0) {
@@ -764,11 +762,18 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const card = marker.userData.card;
         if (!card) continue;
         
+        // Check if card is in visible set (null means show all)
+        const visibleIds = visibleCardIdsRef.current;
+        const isInVisibleSet = visibleIds === null || visibleIds.has(card.id);
+        
         const { visible, targetOpacity, scale } = getMarkerVisibility(marker.position, camPos, card.id);
         visibilityState.current[card.id] = { visible };
         
+        // Apply visibility filter
+        const filteredTargetOpacity = isInVisibleSet ? targetOpacity : 0;
+        
         const currentOpacity = markerOpacity.current[card.id] ?? 1;
-        const newOpacity = currentOpacity + (targetOpacity - currentOpacity) * 0.1;
+        const newOpacity = currentOpacity + (filteredTargetOpacity - currentOpacity) * 0.1;
         markerOpacity.current[card.id] = newOpacity;
         
         marker.visible = newOpacity > 0.01;
@@ -781,48 +786,46 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const newRayOpacity = currentRayOpacity + (targetRayOpacity - currentRayOpacity) * 0.08;
         rayOpacityRef.current[card.id] = newRayOpacity;
         
+        const isFocused = focusCardId === card.id;
+        
         let starContainer = null;
         for (const child of marker.children) {
           if (child.userData?.type === 'starContainer') starContainer = child;
         }
+
+      if (isSelected) {
+        marker.scale.setScalar(0.7 * scale);
         
-        if (isSelected) {
-          marker.scale.setScalar(0.7 * scale);
-          
-          // Rotate star container on Z axis when selected
-          if (starContainer) {
-            starContainer.rotation.z = rotationSpeed;
-          }
-          
-          marker.traverse((child) => {
-            if (child.userData?.type === 'star') {
-              child.material.opacity = newOpacity;
-            } else if (child.userData?.type === 'glow') {
-              child.material.opacity = 0.6 * newOpacity;
-              child.scale.setScalar(1.8);
-            } else if (child.userData?.type === 'beam' && child.material.uniforms) {
-              child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
-            }
-          });
-        } else {
-          marker.scale.setScalar(pulseScale * scale);
-          
-          // Reset rotation when not selected
-          if (starContainer) {
-            starContainer.rotation.z = 0;
-          }
-          
-          marker.traverse((child) => {
-            if (child.userData?.type === 'star') {
-              child.material.opacity = newOpacity;
-            } else if (child.userData?.type === 'glow') {
-              child.material.opacity = pulseGlow * newOpacity;
-              child.scale.setScalar(1);
-            } else if (child.userData?.type === 'beam' && child.material.uniforms) {
-              child.material.uniforms.opacity.value = newRayOpacity * beamBasePulse * newOpacity;
-            }
-          });
+        if (starContainer) {
+          const base = starContainer.userData.baseRotation || 0;
+          starContainer.rotation.z = base + rotationSpeed;
         }
+        
+        marker.traverse((child) => {
+          if (child.userData?.type === 'star') {
+            child.material.opacity = newOpacity;
+          } else if (child.userData?.type === 'glow') {
+            child.material.opacity = 0.6 * newOpacity;
+            child.scale.setScalar(1.8);
+          } else if (child.userData?.type === 'beam' && child.material.uniforms) {
+            child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
+          }
+        });
+      } else {
+        // Reset to normal state with rays
+        marker.scale.setScalar(scale);
+        
+        marker.traverse((child) => {
+          if (child.userData?.type === 'star') {
+            child.material.opacity = newOpacity;
+          } else if (child.userData?.type === 'glow') {
+            child.material.opacity = 0.3 * newOpacity;
+            child.scale.setScalar(1);
+          } else if (child.userData?.type === 'beam' && child.material.uniforms) {
+            child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
+          }
+        });
+      }
         
         screenVec.copy(marker.position).project(camera);
         const screenX = (screenVec.x * 0.5 + 0.5) * w;
@@ -950,27 +953,49 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, [focusCardId]);
 
   // Detect rotation attempt to unfocus
-  // Detect rotation/zoom attempt to unfocus
+  // Detect rotation/zoom attempt to unfocus (but not clicks)
   useEffect(() => {
-    if (!controlsRef.current) return;
+    if (!controlsRef.current || !containerRef.current) return;
     
-    const handleChange = () => {
-      if (focusCardIdRef.current && onFocusLost) {
-        onFocusLost();
+    let mouseDownPos = null;
+    
+    const handleMouseDown = (e) => {
+      mouseDownPos = { x: e.clientX, y: e.clientY };
+    };
+    
+    const handleMouseMove = (e) => {
+      if (!mouseDownPos) return;
+      const dx = e.clientX - mouseDownPos.x;
+      const dy = e.clientY - mouseDownPos.y;
+      // Only trigger focus lost if actually dragging (moved > 5px)
+      if (Math.sqrt(dx*dx + dy*dy) > 5) {
+        if (focusCardIdRef.current && onFocusLost) {
+          onFocusLost();
+        }
+        mouseDownPos = null;
       }
     };
     
-    const controls = controlsRef.current;
-    controls.addEventListener('start', handleChange);
+    const handleMouseUp = () => {
+      mouseDownPos = null;
+    };
+    
+    const container = containerRef.current;
+    container.addEventListener('mousedown', handleMouseDown);
+    container.addEventListener('mousemove', handleMouseMove);
+    container.addEventListener('mouseup', handleMouseUp);
     
     return () => {
-      controls.removeEventListener('start', handleChange);
+      container.removeEventListener('mousedown', handleMouseDown);
+      container.removeEventListener('mousemove', handleMouseMove);
+      container.removeEventListener('mouseup', handleMouseUp);
     };
   }, [onFocusLost]);
 
   useEffect(() => {
     if (!sceneRef.current || !glowTextureRef.current) return;
     if (!starTexturesRef.current[DEFAULT_STAR_COLOR]) return;
+    if (!cards || cards.length === 0) return;
     
     markersRef.current.forEach(m => {
       m.traverse((obj) => {
@@ -983,15 +1008,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     markerOpacity.current = {};
     rayOpacityRef.current = {};
 
-    let filteredCards = cards;
-    if (visibleGroups && visibleGroups.length > 0 && !visibleGroups.includes('all')) {
-      filteredCards = cards.filter(card => {
-        if (!card.groups || card.groups.length === 0) return false;
-        return card.groups.some(g => visibleGroups.includes(g));
-      });
-    }
-
-    filteredCards.forEach(card => {
+    // Create markers for all cards - visibility is handled in animation loop
+    cards.forEach(card => {
       const color = card.starColor || DEFAULT_STAR_COLOR;
       const starTexture = starTexturesRef.current[color] || starTexturesRef.current[DEFAULT_STAR_COLOR];
       const glowTexture = createGlowTexture(color);
@@ -1000,20 +1018,12 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       sceneRef.current.add(group);
       markersRef.current.push(group);
     });
-  }, [cards, visibleGroups, createStarMarker, createGlowTexture]);
+  }, [cards, createStarMarker, createGlowTexture]);
 
   useEffect(() => {
     const checkTexture = setInterval(() => {
-      if (starTexturesRef.current[DEFAULT_STAR_COLOR] && sceneRef.current && markersRef.current.length === 0 && cards.length > 0) {
-        let filteredCards = cards;
-        if (visibleGroups && visibleGroups.length > 0 && !visibleGroups.includes('all')) {
-          filteredCards = cards.filter(card => {
-            if (!card.groups || card.groups.length === 0) return false;
-            return card.groups.some(g => visibleGroups.includes(g));
-          });
-        }
-        
-        filteredCards.forEach(card => {
+      if (starTexturesRef.current[DEFAULT_STAR_COLOR] && sceneRef.current && markersRef.current.length === 0 && cards && cards.length > 0) {
+        cards.forEach(card => {
           const color = card.starColor || DEFAULT_STAR_COLOR;
           const starTexture = starTexturesRef.current[color] || starTexturesRef.current[DEFAULT_STAR_COLOR];
           const glowTexture = createGlowTexture(color);
@@ -1026,7 +1036,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       }
     }, 100);
     return () => clearInterval(checkTexture);
-  }, [cards, visibleGroups, createStarMarker, createGlowTexture]);
+  }, [cards, createStarMarker, createGlowTexture]);
 
   const handleClick = useCallback((e) => {
     const card = findCardAtMouse(e.clientX, e.clientY);
