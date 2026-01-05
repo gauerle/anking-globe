@@ -1,133 +1,97 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { getImageUrl } from '../utils/api';
-
-// Registry to track all visible card positions for overlap detection
-const cardPositions = new Map();
 
 function PopupCard({ card, visibilityData, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
-  const cardRef = useRef(null);
   
   const data = visibilityData?.[card.id];
   
-  // Cleanup position from registry when unmounting or hidden
-  useEffect(() => {
-    return () => {
-      cardPositions.delete(card.id);
-    };
-  }, [card.id]);
-  
   if (!data || !data.visible || data.opacity < 0.05) {
-    cardPositions.delete(card.id);
     return null;
   }
 
   const { screenPos, scale, opacity } = data;
   
-  // Scale settings with limits
-  const baseScale = 0.75;
-  const minScale = 0.5;
-  const maxScale = 1.1;  // Maximum scale to prevent cards from getting too large
-  const focusBoost = isFocused ? 1.4 : 1;  // Increased from 1.2
-  const hoverBoost = isHovered && !isFocused ? 1.1 : 1;
-  
-  // Calculate final scale with min/max limits
-  let finalScale = scale * baseScale * focusBoost * hoverBoost;
-  finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
-  
+  // Card dimensions (unscaled)
   const cardWidth = 220;
   const cardHeight = 58;
+  const margin = 10;
   
-  // Calculate base position
-  let x = screenPos.x + 15;
-  let y = screenPos.y - 30;
+  // Scale calculations with limits
+  const baseScale = 0.85;
+  const minScale = 0.55;
+  const maxScale = 0.90;
+  const focusBoost = isFocused ? 1.35 : 1;
+  const hoverBoost = isHovered && !isFocused ? 1.08 : 1;
   
-  // Boundary checks
-  if (x + cardWidth * finalScale > window.innerWidth - 10) {
-    x = screenPos.x - cardWidth * finalScale - 15;
+  const clampedRawScale = Math.max(0.5, Math.min(0.85, scale));
+  let finalScale = clampedRawScale * baseScale * focusBoost * hoverBoost;
+  finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
+  
+  // Calculate available space on each side of the star
+  const spaceOnRight = window.innerWidth - screenPos.x - margin;
+  const spaceOnLeft = screenPos.x - margin;
+  
+  // Expected scaled dimensions for boundary checking
+  const scaledWidth = cardWidth * finalScale;
+  const scaledHeight = cardHeight * finalScale;
+  
+  // Decide placement side based on available space
+  let placementSide;
+  
+  if (spaceOnRight >= scaledWidth && spaceOnLeft < scaledWidth) {
+    // Only fits on right
+    placementSide = 'right';
+  } else if (spaceOnLeft >= scaledWidth && spaceOnRight < scaledWidth) {
+    // Only fits on left
+    placementSide = 'left';
+  } else if (spaceOnRight >= scaledWidth && spaceOnLeft >= scaledWidth) {
+    // Both sides fit - choose based on star's screen position
+    // Star on right half → card goes left, star on left half → card goes right
+    placementSide = screenPos.x > window.innerWidth / 2 ? 'left' : 'right';
+  } else {
+    // Neither fits perfectly - use side with more space
+    placementSide = spaceOnRight > spaceOnLeft ? 'right' : 'left';
   }
-  x = Math.max(10, x);
-  y = Math.max(10, Math.min(window.innerHeight - 80 * finalScale, y));
   
-  // Smart positioning to avoid overlap with other cards
-  const adjustPosition = (baseX, baseY) => {
-    const padding = 8;
-    const scaledWidth = cardWidth * finalScale;
-    const scaledHeight = cardHeight * finalScale;
-    
-    let newX = baseX;
-    let newY = baseY;
-    
-    // Positions to try: original, below, above, right, left, and diagonals
-    const offsets = [
-      { dx: 0, dy: 0 },                          // Original
-      { dx: 0, dy: scaledHeight + padding },     // Below
-      { dx: 0, dy: -(scaledHeight + padding) },  // Above
-      { dx: scaledWidth + padding, dy: 0 },      // Right
-      { dx: -(scaledWidth + padding), dy: 0 },   // Left
-      { dx: scaledWidth/2, dy: scaledHeight + padding },   // Below-right
-      { dx: -scaledWidth/2, dy: scaledHeight + padding },  // Below-left
-      { dx: 0, dy: -(scaledHeight + padding) * 1.5 },      // Further above
-    ];
-    
-    const hasOverlap = (testX, testY) => {
-      for (const [otherId, otherPos] of cardPositions.entries()) {
-        if (otherId === card.id) continue;
-        
-        const overlapX = testX < otherPos.x + otherPos.width + padding && 
-                         testX + scaledWidth + padding > otherPos.x;
-        const overlapY = testY < otherPos.y + otherPos.height + padding && 
-                         testY + scaledHeight + padding > otherPos.y;
-        
-        if (overlapX && overlapY) return true;
-      }
-      return false;
-    };
-    
-    // Try each offset position
-    for (const offset of offsets) {
-      const testX = baseX + offset.dx;
-      const testY = baseY + offset.dy;
-      
-      // Check boundaries
-      if (testX < 10 || testX + scaledWidth > window.innerWidth - 10) continue;
-      if (testY < 10 || testY + scaledHeight > window.innerHeight - 10) continue;
-      
-      if (!hasOverlap(testX, testY)) {
-        newX = testX;
-        newY = testY;
-        break;
-      }
-    }
-    
-    return { x: newX, y: newY };
-  };
+  // Position calculation
+  // The anchor point (star intersection) stays fixed during scaling
+  let x, transformOrigin;
   
-  // Get adjusted position
-  const finalPos = adjustPosition(x, y);
+  if (placementSide === 'right') {
+    // Card appears to the RIGHT of star
+    // Left edge of card is anchored at star position
+    x = screenPos.x;
+    transformOrigin = 'left center';
+  } else {
+    // Card appears to the LEFT of star
+    // Right edge of card is anchored at star position
+    // Set left so that: left + cardWidth = screenPos.x
+    x = screenPos.x - cardWidth;
+    transformOrigin = 'right center';
+  }
   
-  // Update registry with current position
-  cardPositions.set(card.id, {
-    x: finalPos.x,
-    y: finalPos.y,
-    width: cardWidth * finalScale,
-    height: cardHeight * finalScale
-  });
-
+  // Vertical position: center card vertically on star
+  // Anchor at vertical center so scaling is symmetric
+  const y = screenPos.y - (cardHeight / 2);
+  
+  // Apply boundary constraints (after determining placement)
+  // For vertical, clamp to screen bounds
+  const clampedY = Math.max(margin, Math.min(window.innerHeight - scaledHeight - margin, y));
+  
   // Z-index: hovered > focused > base
-  let computedZIndex = zIndex;
+  let computedZIndex = zIndex || 1000;
   if (isFocused) computedZIndex = 2000;
   if (isHovered) computedZIndex = 2500;
 
   return (
     <div 
-      ref={cardRef}
       className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''}`}
       style={{
-        left: finalPos.x,
-        top: finalPos.y,
+        left: x,
+        top: clampedY,
         transform: `scale(${finalScale})`,
-        transformOrigin: 'left top',
+        transformOrigin: transformOrigin,
         opacity: opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',
