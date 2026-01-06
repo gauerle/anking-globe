@@ -1,4 +1,4 @@
-console.log('APP VERSION 13 LOADED');
+console.log('APP VERSION 14 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -9,9 +9,6 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 import { useGroups } from './hooks/useGroups';
 
-/**
- * Distance between two points
- */
 function geoDistance(lat1, lng1, lat2, lng2) {
   const dLat = lat2 - lat1;
   const dLng = lng2 - lng1;
@@ -19,42 +16,26 @@ function geoDistance(lat1, lng1, lat2, lng2) {
 }
 
 /**
- * The 4 valid corners - in order for cycling
- */
-const CORNERS = ['top-left', 'bottom-right', 'top-right', 'bottom-left'];
-
-/**
- * Opposite corners - for forcing maximum separation
- */
-const OPPOSITE = {
-  'top-left': 'bottom-right',
-  'bottom-right': 'top-left',
-  'top-right': 'bottom-left',
-  'bottom-left': 'top-right'
-};
-
-/**
- * NEW APPROACH: Cluster-based corner assignment
+ * NEW APPROACH: Cards extend AWAY from their cluster center
  * 
- * 1. Find clusters of nearby cards
- * 2. Within each cluster, assign corners to maximize spread
- * 3. Isolated cards get hemisphere-based defaults
+ * For a cluster of cards, find the centroid, then each card
+ * gets an anchor that makes it extend away from that center.
+ * 
+ * Card position relative to center → anchor → card extends direction
+ * ─────────────────────────────────────────────────────────────────
+ * NW of center → bottom-right → card extends UP and LEFT
+ * NE of center → bottom-left  → card extends UP and RIGHT
+ * SW of center → top-right    → card extends DOWN and LEFT
+ * SE of center → top-left     → card extends DOWN and RIGHT
  */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
-  const CLUSTER_THRESHOLD = 15; // degrees - cards within this form a cluster
+  const CLUSTER_THRESHOLD = 20;
   const anchors = {};
-  const assigned = new Set();
+  const processed = new Set();
   
-  // Sort cards by latitude (north to south), then longitude (west to east)
-  const sortedCards = [...cards].sort((a, b) => {
-    const latDiff = b.lat - a.lat;
-    if (Math.abs(latDiff) > 2) return latDiff;
-    return a.lng - b.lng;
-  });
-  
-  // Build adjacency list - which cards are near each other
+  // Build adjacency for clustering
   const nearby = {};
   for (const card of cards) {
     nearby[card.id] = [];
@@ -68,20 +49,11 @@ function computeCardAnchors(cards) {
     nearby[card.id].sort((a, b) => a.dist - b.dist);
   }
   
-  // Process each card
-  for (const card of sortedCards) {
-    if (assigned.has(card.id)) continue;
+  // Process cards, grouping into clusters
+  for (const card of cards) {
+    if (processed.has(card.id)) continue;
     
-    const neighbors = nearby[card.id];
-    
-    if (neighbors.length === 0) {
-      // Isolated card - use hemisphere default
-      anchors[card.id] = getHemisphereDefault(card);
-      assigned.add(card.id);
-      continue;
-    }
-    
-    // Find all cards in this cluster (BFS)
+    // BFS to find all cards in this cluster
     const cluster = [];
     const queue = [card];
     const visited = new Set([card.id]);
@@ -98,122 +70,121 @@ function computeCardAnchors(cards) {
       }
     }
     
-    // Assign corners within cluster to maximize spread
-    assignClusterCorners(cluster, anchors, nearby);
+    // Assign anchors to this cluster
+    assignClusterAnchors(cluster, anchors);
     
     for (const c of cluster) {
-      assigned.add(c.id);
+      processed.add(c.id);
     }
   }
   
   // Log results
-  console.log('Card anchors (cluster-based):');
-  for (const card of sortedCards) {
-    const neighborCount = nearby[card.id].length;
-    console.log(`  ${card.name}: "${anchors[card.id]}" (${neighborCount} nearby)`);
+  console.log('Card anchors (spread-from-center):');
+  for (const card of cards) {
+    console.log(`  ${card.name}: "${anchors[card.id]}" (${nearby[card.id].length} neighbors)`);
   }
   
   return anchors;
 }
 
 /**
- * Get default corner based on hemisphere
+ * Assign anchors to a cluster so cards spread outward from center
  */
-function getHemisphereDefault(card) {
-  const inWest = card.lng < 0;
-  const inNorth = card.lat > 0;
-  if (inWest && inNorth) return 'top-left';
-  if (!inWest && inNorth) return 'top-right';
-  if (inWest && !inNorth) return 'bottom-left';
-  return 'bottom-right';
+function assignClusterAnchors(cluster, anchors) {
+  if (cluster.length === 1) {
+    // Single card - use hemisphere default
+    const card = cluster[0];
+    anchors[card.id] = getDefaultAnchor(card);
+    return;
+  }
+  
+  // Find cluster centroid
+  let centerLat = 0, centerLng = 0;
+  for (const card of cluster) {
+    centerLat += card.lat;
+    centerLng += card.lng;
+  }
+  centerLat /= cluster.length;
+  centerLng /= cluster.length;
+  
+  // Assign each card an anchor based on position relative to center
+  for (const card of cluster) {
+    const isNorth = card.lat >= centerLat;
+    const isEast = card.lng >= centerLng;
+    
+    // Card extends AWAY from cluster center
+    if (isNorth && !isEast) {
+      // NW of center → extend up-left → bottom-right anchor
+      anchors[card.id] = 'bottom-right';
+    } else if (isNorth && isEast) {
+      // NE of center → extend up-right → bottom-left anchor
+      anchors[card.id] = 'bottom-left';
+    } else if (!isNorth && !isEast) {
+      // SW of center → extend down-left → top-right anchor
+      anchors[card.id] = 'top-right';
+    } else {
+      // SE of center → extend down-right → top-left anchor
+      anchors[card.id] = 'top-left';
+    }
+  }
+  
+  // Check for conflicts (multiple cards got same anchor in same quadrant)
+  // and resolve by adjusting
+  resolveConflicts(cluster, anchors, centerLat, centerLng);
 }
 
 /**
- * Assign corners to cards in a cluster to minimize overlap
+ * Resolve conflicts when multiple cards in same quadrant got same anchor
  */
-function assignClusterCorners(cluster, anchors, nearby) {
-  if (cluster.length === 1) {
-    anchors[cluster[0].id] = getHemisphereDefault(cluster[0]);
-    return;
+function resolveConflicts(cluster, anchors, centerLat, centerLng) {
+  // Group cards by their assigned anchor
+  const byAnchor = { 'top-left': [], 'top-right': [], 'bottom-left': [], 'bottom-right': [] };
+  
+  for (const card of cluster) {
+    byAnchor[anchors[card.id]].push(card);
   }
   
-  // Sort cluster by position (top-left to bottom-right)
-  cluster.sort((a, b) => {
-    const latDiff = b.lat - a.lat; // Higher lat = more north = first
-    if (Math.abs(latDiff) > 1) return latDiff;
-    return a.lng - b.lng; // Lower lng = more west = first
-  });
+  // For each anchor with multiple cards, spread them to adjacent anchors
+  const anchorOrder = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
   
-  // For 2 cards: use opposite corners
-  if (cluster.length === 2) {
-    const [card1, card2] = cluster;
+  for (const anchor of anchorOrder) {
+    const cardsWithAnchor = byAnchor[anchor];
+    if (cardsWithAnchor.length <= 1) continue;
     
-    // Determine relative position
-    const card2IsBelow = card2.lat < card1.lat;
-    const card2IsRight = card2.lng > card1.lng;
+    // Sort by distance from center (furthest first keeps original)
+    cardsWithAnchor.sort((a, b) => {
+      const distA = geoDistance(a.lat, a.lng, centerLat, centerLng);
+      const distB = geoDistance(b.lat, b.lng, centerLat, centerLng);
+      return distB - distA;
+    });
     
-    if (card2IsBelow && card2IsRight) {
-      // Card2 is to bottom-right of Card1
-      anchors[card1.id] = 'bottom-right'; // Card1 extends up-left
-      anchors[card2.id] = 'top-left';     // Card2 extends down-right
-    } else if (card2IsBelow && !card2IsRight) {
-      // Card2 is to bottom-left of Card1
-      anchors[card1.id] = 'bottom-left';
-      anchors[card2.id] = 'top-right';
-    } else if (!card2IsBelow && card2IsRight) {
-      // Card2 is to top-right of Card1
-      anchors[card1.id] = 'top-right';
-      anchors[card2.id] = 'bottom-left';
-    } else {
-      // Card2 is to top-left of Card1
-      anchors[card1.id] = 'top-left';
-      anchors[card2.id] = 'bottom-right';
+    // Keep first card, reassign others to adjacent anchors
+    const anchorIdx = anchorOrder.indexOf(anchor);
+    for (let i = 1; i < cardsWithAnchor.length; i++) {
+      const card = cardsWithAnchor[i];
+      // Try clockwise then counter-clockwise
+      const cw = anchorOrder[(anchorIdx + i) % 4];
+      const ccw = anchorOrder[(anchorIdx - i + 4) % 4];
+      
+      // Pick whichever has fewer cards
+      if (byAnchor[cw].length <= byAnchor[ccw].length) {
+        anchors[card.id] = cw;
+        byAnchor[cw].push(card);
+      } else {
+        anchors[card.id] = ccw;
+        byAnchor[ccw].push(card);
+      }
     }
-    return;
   }
-  
-  // For 3+ cards: assign corners cyclically, but try to spread
-  const usedCorners = {};
-  
-  for (let i = 0; i < cluster.length; i++) {
-    const card = cluster[i];
-    
-    // Get corners already used by nearby cards
-    const nearbyCorners = new Set();
-    for (const neighbor of nearby[card.id]) {
-      if (anchors[neighbor.card.id]) {
-        nearbyCorners.add(anchors[neighbor.card.id]);
-      }
-    }
-    
-    // Find a corner not used by immediate neighbors
-    let bestCorner = null;
-    
-    // First priority: opposite corners from neighbors
-    for (const corner of CORNERS) {
-      if (!nearbyCorners.has(corner) && !nearbyCorners.has(OPPOSITE[corner])) {
-        bestCorner = corner;
-        break;
-      }
-    }
-    
-    // Second priority: any unused corner
-    if (!bestCorner) {
-      for (const corner of CORNERS) {
-        if (!nearbyCorners.has(corner)) {
-          bestCorner = corner;
-          break;
-        }
-      }
-    }
-    
-    // Fallback: cycle through corners
-    if (!bestCorner) {
-      bestCorner = CORNERS[i % 4];
-    }
-    
-    anchors[card.id] = bestCorner;
-  }
+}
+
+function getDefaultAnchor(card) {
+  const inWest = card.lng < 0;
+  const inNorth = card.lat > 0;
+  if (inWest && inNorth) return 'bottom-right';
+  if (!inWest && inNorth) return 'bottom-left';
+  if (inWest && !inNorth) return 'top-right';
+  return 'top-left';
 }
 
 
