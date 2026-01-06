@@ -433,52 +433,62 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     let lat = card.lat;
     let lng = card.lng;
     
-    const MIN_DISTANCE = 5;
-    const OFFSET_AMOUNT = 1.5;
-    let attempts = 0;
-    const maxAttempts = 8;
+    const MIN_DISTANCE = 6;
+    const PUSH_STRENGTH = 0.4;
     
-    while (attempts < maxAttempts) {
-      const phi = (90 - lat) * (Math.PI / 180);
-      const theta = (lng + 180) * (Math.PI / 180);
+    const calcPosition = (latitude, longitude) => {
+      const phi = (90 - latitude) * (Math.PI / 180);
+      const theta = (longitude + 180) * (Math.PI / 180);
       const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
-      const testPos = new THREE.Vector3(
+      return new THREE.Vector3(
         -r * Math.sin(phi) * Math.cos(theta),
         r * Math.cos(phi),
         r * Math.sin(phi) * Math.sin(theta)
       );
+    };
+    
+    let testPos = calcPosition(lat, lng);
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (attempts < maxAttempts) {
+      let needsAdjustment = false;
       
-      let hasCollision = false;
       for (const existingMarker of existingMarkers) {
         const dist = testPos.distanceTo(existingMarker.position);
+        
         if (dist < MIN_DISTANCE) {
-          hasCollision = true;
+          needsAdjustment = true;
+          
+          const existingCard = existingMarker.userData.card;
+          if (!existingCard) continue;
+          
+          const midLat = (lat + existingCard.lat) / 2;
+          const midLng = (lng + existingCard.lng) / 2;
+          
+          const dLat = lat - midLat;
+          const dLng = lng - midLng;
+          const len = Math.sqrt(dLat * dLat + dLng * dLng) || 0.001;
+          
+          const pushLat = (dLat / len) * PUSH_STRENGTH * (1 + attempts * 0.3);
+          const pushLng = (dLng / len) * PUSH_STRENGTH * (1 + attempts * 0.3);
+          
+          lat = card.lat + pushLat;
+          lng = card.lng + pushLng;
+          
+          testPos = calcPosition(lat, lng);
           break;
         }
       }
       
-      if (!hasCollision) {
-        group.position.copy(testPos);
+      if (!needsAdjustment) {
         break;
       }
       
-      const angle = (attempts * Math.PI / 4);
-      const offsetDist = OFFSET_AMOUNT * (1 + attempts * 0.3);
-      lat = card.lat + Math.sin(angle) * offsetDist;
-      lng = card.lng + Math.cos(angle) * offsetDist;
       attempts++;
     }
     
-    if (attempts >= maxAttempts) {
-      const phi = (90 - card.lat) * (Math.PI / 180);
-      const theta = (card.lng + 180) * (Math.PI / 180);
-      const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
-      group.position.set(
-        -r * Math.sin(phi) * Math.cos(theta),
-        r * Math.cos(phi),
-        r * Math.sin(phi) * Math.sin(theta)
-      );
-    }
+    group.position.copy(testPos);
     
     const outwardDir = group.position.clone().normalize();
     const targetPoint = group.position.clone().add(outwardDir);
@@ -815,6 +825,12 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       } else {
         // Reset to normal state with rays
         marker.scale.setScalar(scale);
+        
+        // FIX: Reset star rotation to match beam
+        if (starContainer) {
+          const base = starContainer.userData.baseRotation || 0;
+          starContainer.rotation.z = base;
+        }
         
         marker.traverse((child) => {
           if (child.userData?.type === 'star') {

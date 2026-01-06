@@ -6,7 +6,7 @@ const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
 // Much higher threshold - cards become photos very quickly when zooming out
-const COMPACT_THRESHOLD = 0.85;
+const COMPACT_THRESHOLD = 0.88;
 
 function calculatePosition(anchor, starX, starY, isCompact) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -44,8 +44,8 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   
   const baseScale = isCompact ? 0.85 : 0.75;
   const minScale = isCompact ? 0.55 : 0.5;
-  const maxScale = isCompact ? 1.0 : 0.95;
-  const focusBoost = isFocused ? 1.3 : 1;
+  const maxScale = isCompact ? 1.0 : 1.1;
+  const focusBoost = isFocused ? 1.5 : 1;
   const hoverBoost = isHovered && !isFocused ? 1.15 : 1;
   
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
