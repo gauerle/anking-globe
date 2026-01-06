@@ -516,7 +516,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     }
     
     const distance = cameraPos.distanceTo(markerPos);
-    const scale = Math.max(0.5, Math.min(0.85, 220 / distance));
+    const scale = Math.max(0.5, Math.min(1.5, 220 / distance));
     
     return { visible, targetOpacity, scale };
   }, []);
