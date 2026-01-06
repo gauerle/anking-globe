@@ -50,7 +50,7 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   
   // Convert scale back to approximate distance
   // (scale = 220 / distance, so distance = 220 / scale)
-  const approxDistance = 260 / rawScale;
+  const approxDistance = 280 / rawScale;
   
   // Compact when distance exceeds threshold (and not focused)
   const isCompact = approxDistance > COMPACT_DISTANCE && !isFocused;

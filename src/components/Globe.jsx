@@ -433,8 +433,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     let lat = card.lat;
     let lng = card.lng;
     
-    const MIN_DISTANCE = 6;
-    const PUSH_STRENGTH = 0.4;
+    const MIN_DISTANCE = 6;  // Minimum distance between markers in 3D space
     
     const calcPosition = (latitude, longitude) => {
       const phi = (90 - latitude) * (Math.PI / 180);
@@ -452,39 +451,50 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const maxAttempts = 10;
     
     while (attempts < maxAttempts) {
-      let needsAdjustment = false;
+      let collision = null;
+      let minDist = MIN_DISTANCE;
       
+      // Find the closest collision
       for (const existingMarker of existingMarkers) {
         const dist = testPos.distanceTo(existingMarker.position);
-        
-        if (dist < MIN_DISTANCE) {
-          needsAdjustment = true;
-          
-          const existingCard = existingMarker.userData.card;
-          if (!existingCard) continue;
-          
-          const midLat = (lat + existingCard.lat) / 2;
-          const midLng = (lng + existingCard.lng) / 2;
-          
-          const dLat = lat - midLat;
-          const dLng = lng - midLng;
-          const len = Math.sqrt(dLat * dLat + dLng * dLng) || 0.001;
-          
-          const pushLat = (dLat / len) * PUSH_STRENGTH * (1 + attempts * 0.3);
-          const pushLng = (dLng / len) * PUSH_STRENGTH * (1 + attempts * 0.3);
-          
-          lat = card.lat + pushLat;
-          lng = card.lng + pushLng;
-          
-          testPos = calcPosition(lat, lng);
-          break;
+        if (dist < minDist) {
+          minDist = dist;
+          collision = existingMarker;
         }
       }
       
-      if (!needsAdjustment) {
+      // No collision - we're done
+      if (!collision) {
         break;
       }
       
+      const existingCard = collision.userData.card;
+      if (!existingCard) break;
+      
+      // Calculate direction FROM existing TO this card (in lat/lng space)
+      let dLat = lat - existingCard.lat;
+      let dLng = lng - existingCard.lng;
+      const len = Math.sqrt(dLat * dLat + dLng * dLng);
+      
+      // If they're at the exact same position, push in a random direction
+      if (len < 0.001) {
+        const angle = Math.random() * Math.PI * 2;
+        dLat = Math.cos(angle);
+        dLng = Math.sin(angle);
+      } else {
+        // Normalize
+        dLat /= len;
+        dLng /= len;
+      }
+      
+      // Push this card AWAY from the existing card
+      // Move by a fixed amount in the direction away from the collision
+      const pushAmount = 1.5 * (1 + attempts * 0.5);  // Increase push each attempt
+      lat = lat + dLat * pushAmount;
+      lng = lng + dLng * pushAmount;
+      
+      // Recalculate position
+      testPos = calcPosition(lat, lng);
       attempts++;
     }
     
