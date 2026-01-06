@@ -15,8 +15,8 @@ const COMPACT_SIZE = 56;
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
 // Offset for cards at same location
-const BASE_OFFSET = 40;
-const RING_OFFSET = 50;
+const BASE_OFFSET = 18;
+const RING_OFFSET = 25;
 
 /**
  * Group cards by location (lat/lng within threshold)

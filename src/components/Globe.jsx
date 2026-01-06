@@ -812,12 +812,20 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
           if (child.userData?.type === 'starContainer') starContainer = child;
         }
 
+        // Find beam to sync rotation
+        let beam = null;
+        for (const child of marker.children) {
+          if (child.userData?.type === 'beam') beam = child;
+        }
+
         if (isSelected) {
           marker.scale.setScalar(0.7 * scale);
           
           if (starContainer) {
             const base = starContainer.userData.baseRotation || 0;
             starContainer.rotation.z = base + rotationSpeed;
+            // Sync beam rotation with star
+            if (beam) beam.rotation.z = base + rotationSpeed;
           }
           
           marker.traverse((child) => {
@@ -832,6 +840,12 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
           });
         } else {
           marker.scale.setScalar(scale);
+          
+          // Keep beam rotation synced with star container even when not selected
+          if (starContainer && beam) {
+            const base = starContainer.userData.baseRotation || 0;
+            beam.rotation.z = base;
+          }
           
           marker.traverse((child) => {
             if (child.userData?.type === 'star') {
