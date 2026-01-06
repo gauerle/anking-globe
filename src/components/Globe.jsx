@@ -433,7 +433,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     let lat = card.lat;
     let lng = card.lng;
     
-    const MIN_DISTANCE = 6;  // Minimum distance between markers in 3D space
+    const MIN_DISTANCE = 4;  // Minimum distance between markers in 3D space
     
     const calcPosition = (latitude, longitude) => {
       const phi = (90 - latitude) * (Math.PI / 180);
@@ -489,8 +489,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       
       // Push this card AWAY from the existing card
       // Move by a fixed amount in the direction away from the collision
-      const pushAmount = 1.5 * (1 + attempts * 0.5);  // Increase push each attempt
-      lat = lat + dLat * pushAmount;
+      const pushAmount = 0.8 * (1 + attempts * 0.2);  // Gentler push, slower escalation      lat = lat + dLat * pushAmount;
       lng = lng + dLng * pushAmount;
       
       // Recalculate position
