@@ -33,7 +33,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const markerOpacity = useRef({});
   const starTexturesRef = useRef({});
   const prevVisibilityData = useRef({});
-  const adjustedPositionsRef = useRef({});
   const glowTextureRef = useRef(null);
   const selectedCardsRef = useRef(selectedCards);
   const onMarkerVisibilityChangeRef = useRef(onMarkerVisibilityChange);
@@ -434,74 +433,52 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     let lat = card.lat;
     let lng = card.lng;
     
-    const MIN_DISTANCE = 4;  // Minimum distance between markers in 3D space
+    const MIN_DISTANCE = 5;
+    const OFFSET_AMOUNT = 1.5;
+    let attempts = 0;
+    const maxAttempts = 8;
     
-    const calcPosition = (latitude, longitude) => {
-      const phi = (90 - latitude) * (Math.PI / 180);
-      const theta = (longitude + 180) * (Math.PI / 180);
+    while (attempts < maxAttempts) {
+      const phi = (90 - lat) * (Math.PI / 180);
+      const theta = (lng + 180) * (Math.PI / 180);
       const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
-      return new THREE.Vector3(
+      const testPos = new THREE.Vector3(
         -r * Math.sin(phi) * Math.cos(theta),
         r * Math.cos(phi),
         r * Math.sin(phi) * Math.sin(theta)
       );
-    };
-    
-    let testPos = calcPosition(lat, lng);
-    let attempts = 0;
-    const maxAttempts = 10;
-    
-    while (attempts < maxAttempts) {
-      let collision = null;
-      let minDist = MIN_DISTANCE;
       
-      // Find the closest collision
+      let hasCollision = false;
       for (const existingMarker of existingMarkers) {
         const dist = testPos.distanceTo(existingMarker.position);
-        if (dist < minDist) {
-          minDist = dist;
-          collision = existingMarker;
+        if (dist < MIN_DISTANCE) {
+          hasCollision = true;
+          break;
         }
       }
       
-      // No collision - we're done
-      if (!collision) {
+      if (!hasCollision) {
+        group.position.copy(testPos);
         break;
       }
       
-      const existingCard = collision.userData.card;
-      if (!existingCard) break;
-      
-      // Calculate direction FROM existing TO this card (in lat/lng space)
-      let dLat = lat - existingCard.lat;
-      let dLng = lng - existingCard.lng;
-      const len = Math.sqrt(dLat * dLat + dLng * dLng);
-      
-      // If they're at the exact same position, push in a random direction
-      if (len < 0.001) {
-        const angle = Math.random() * Math.PI * 2;
-        dLat = Math.cos(angle);
-        dLng = Math.sin(angle);
-      } else {
-        // Normalize
-        dLat /= len;
-        dLng /= len;
-      }
-      
-      // Push this card AWAY from the existing card
-      // Move by a fixed amount in the direction away from the collision
-      const pushAmount = 0.8 * (1 + attempts * 0.2);  // Gentler push, slower escalation      lat = lat + dLat * pushAmount;
-      lng = lng + dLng * pushAmount;
-      
-      // Recalculate position
-      testPos = calcPosition(lat, lng);
+      const angle = (attempts * Math.PI / 4);
+      const offsetDist = OFFSET_AMOUNT * (1 + attempts * 0.3);
+      lat = card.lat + Math.sin(angle) * offsetDist;
+      lng = card.lng + Math.cos(angle) * offsetDist;
       attempts++;
     }
     
-    group.position.copy(testPos);
-    
-    // Store the adjusted lat/lng for anchor positioning
-    adjustedPositionsRef.current[card.id] = { lat, lng };
+    if (attempts >= maxAttempts) {
+      const phi = (90 - card.lat) * (Math.PI / 180);
+      const theta = (card.lng + 180) * (Math.PI / 180);
+      const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
+      group.position.set(
+        -r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta)
+      );
+    }
     
     const outwardDir = group.position.clone().normalize();
     const targetPoint = group.position.clone().add(outwardDir);
@@ -529,7 +506,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     }
     
     const distance = cameraPos.distanceTo(markerPos);
-    const scale = Math.max(0.5, Math.min(1.5, 220 / distance));
+    const scale = Math.max(0.5, Math.min(0.85, 220 / distance));
     
     return { visible, targetOpacity, scale };
   }, []);
@@ -839,12 +816,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         // Reset to normal state with rays
         marker.scale.setScalar(scale);
         
-        // FIX: Reset star rotation to match beam
-        if (starContainer) {
-          const base = starContainer.userData.baseRotation || 0;
-          starContainer.rotation.z = base;
-        }
-        
         marker.traverse((child) => {
           if (child.userData?.type === 'star') {
             child.material.opacity = newOpacity;
@@ -861,14 +832,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const screenX = (screenVec.x * 0.5 + 0.5) * w;
         const screenY = (-screenVec.y * 0.5 + 0.5) * h;
         
-        const adjustedPos = adjustedPositionsRef.current[card.id] || { lat: card.lat, lng: card.lng };
         visibilityData[card.id] = {
           visible: marker.visible,
           screenPos: { x: screenX, y: screenY },
           scale,
-          opacity: newOpacity,
-          adjustedLat: adjustedPos.lat,
-          adjustedLng: adjustedPos.lng
+          opacity: newOpacity
         };
       }
       
@@ -957,8 +925,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         return () => { cancelled = true; };
       }
     } else {
-     savedCameraPosition.current = null;
-   }
+  // Simply clear saved position without animating back
+  // The camera stays where it is - no zoom out animation
+  savedCameraPosition.current = null;
+}
   }, [focusCardId]);
 
   // Detect rotation attempt to unfocus
