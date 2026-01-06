@@ -863,12 +863,16 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const screenX = (screenVec.x * 0.5 + 0.5) * w;
         const screenY = (-screenVec.y * 0.5 + 0.5) * h;
         
+        // Calculate raw distance for proper world-attached scaling
+        const distance = camPos.distanceTo(marker.position);
+        
         // Generate visibility data for ALL cards in group (same screen position)
         for (const card of cardGroup) {
           visibilityData[card.id] = {
             visible: marker.visible,
             screenPos: { x: screenX, y: screenY },
             scale,
+            distance, // Pass raw distance for world-attached scaling
             opacity: newOpacity
           };
         }

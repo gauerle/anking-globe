@@ -5,8 +5,10 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
-// Distance-based threshold for compact mode
-const COMPACT_DISTANCE = 280;
+// Distance thresholds (based on Globe's minDistance=150, maxDistance=600)
+const MIN_DISTANCE = 150;
+const MAX_DISTANCE = 600;
+const COMPACT_DISTANCE = 350;
 
 function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 0 }) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -46,7 +48,6 @@ function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 
       originY = 'top';
   }
   
-  // Apply fuzzy offset (scaled by current scale for consistency)
   left += offset.x;
   top += offset.y;
   
@@ -55,20 +56,18 @@ function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 
 
 const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
-  const [animationState, setAnimationState] = useState('entering'); // 'entering', 'visible', 'exiting'
+  const [animationState, setAnimationState] = useState('entering');
   const [isClosing, setIsClosing] = useState(false);
   const animationRef = useRef(null);
   const hasEnteredRef = useRef(false);
   
   const data = visibilityData?.[card.id];
   
-  // Handle enter animation
   useEffect(() => {
     if (data?.visible && !hasEnteredRef.current) {
       hasEnteredRef.current = true;
       setAnimationState('entering');
       
-      // Trigger transition to visible after a frame
       animationRef.current = requestAnimationFrame(() => {
         animationRef.current = requestAnimationFrame(() => {
           setAnimationState('visible');
@@ -83,13 +82,11 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
     };
   }, [data?.visible]);
   
-  // Handle close with animation
   const handleClose = (e) => {
     e.stopPropagation();
     setIsClosing(true);
     setAnimationState('exiting');
     
-    // Wait for animation to complete before actually closing
     setTimeout(() => {
       onClose(card.id);
     }, 200);
@@ -99,26 +96,24 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
     return null;
   }
 
-  const { screenPos, scale, opacity } = data;
+  const { screenPos, distance, opacity } = data;
   
-  // Scale is from Globe: 220/distance, ranging ~0.5-0.85
-  // Make cards scale MORE with distance - feel attached to world
-  const worldScale = scale; // This already decreases when zooming out
+  // Use raw distance for world-attached scaling
+  // At MIN_DISTANCE (150), scale should be ~1.0 (close up)
+  // At MAX_DISTANCE (600), scale should be ~0.25 (far away)
+  const clampedDistance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, distance || 300));
   
-  // Convert scale to distance for threshold check
-  const approxDistance = 220 / Math.max(0.1, worldScale);
-  const isCompact = approxDistance > COMPACT_DISTANCE && !isFocused;
+  // Inverse relationship: closer = bigger, farther = smaller
+  // This creates a much more dramatic scaling effect
+  const worldScale = MIN_DISTANCE / clampedDistance; // 1.0 at 150, 0.25 at 600
   
-  // Base scale that respects world distance
-  // When far (scale=0.5), cards should be small
-  // When close (scale=0.85), cards should be normal size
-  const baseScale = isCompact ? 0.7 : 0.85;
+  const isCompact = clampedDistance > COMPACT_DISTANCE && !isFocused;
   
-  // Apply world scale more directly - cards shrink when zooming out
-  const distanceScale = Math.max(0.4, Math.min(1.0, worldScale * 1.3));
+  // Base scale 
+  const baseScale = isCompact ? 0.8 : 1.0;
   
-  const focusBoost = isFocused ? 1.2 : 1;
-  const hoverBoost = isHovered && !isFocused ? 1.1 : 1;
+  const focusBoost = isFocused ? 1.15 : 1;
+  const hoverBoost = isHovered && !isFocused ? 1.08 : 1;
   
   // Animation scale
   let animScale = 1;
@@ -128,13 +123,14 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
     animScale = 0.3;
   }
   
-  let finalScale = baseScale * distanceScale * focusBoost * hoverBoost * animScale;
-  finalScale = Math.max(0.3, Math.min(1.2, finalScale));
+  // Final scale combines world distance with interactions
+  let finalScale = baseScale * worldScale * focusBoost * hoverBoost * animScale;
+  finalScale = Math.max(0.2, Math.min(1.3, finalScale));
   
-  // Scale offset by distance so cards stay closer to star when zoomed out
+  // Scale offset by world scale so cards stay proportionally close to star
   const scaledOffset = {
-    x: (offset?.x || 0) * distanceScale,
-    y: (offset?.y || 0) * distanceScale
+    x: (offset?.x || 0) * worldScale,
+    y: (offset?.y || 0) * worldScale
   };
   
   const pos = calculatePosition(anchor, screenPos.x, screenPos.y, isCompact, scaledOffset);
@@ -145,7 +141,6 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
 
   const transformOrigin = `${pos.originX} ${pos.originY}`;
   
-  // Animation opacity
   let animOpacity = opacity;
   if (animationState === 'entering') {
     animOpacity = 0;
