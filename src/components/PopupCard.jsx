@@ -5,68 +5,77 @@ import { getImageUrl } from '../utils/api';
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
-// Compact mode (image only) dimensions
-const COMPACT_SIZE = 40;
+// Compact mode dimensions
+const COMPACT_SIZE = 36;
 
-// Scale threshold for compact mode
+// Scale threshold for compact mode (when rawScale is below this, show compact)
 const COMPACT_THRESHOLD = 0.55;
 
 /**
- * Anchor corner definitions:
- * The star position is at the specified corner of the card.
+ * Calculate card position so that the star is at the specified corner.
  * 
- * - 'top-left': star at card's top-left corner
- * - 'top-right': star at card's top-right corner
- * - 'bottom-left': star at card's bottom-left corner
- * - 'bottom-right': star at card's bottom-right corner
+ * Visual representation:
+ * 
+ * 'top-left' anchor:           'top-right' anchor:
+ *    ★━━━━━━━━━━━━━━━┓            ┏━━━━━━━━━━━━━━━★
+ *    ┃    CARD       ┃            ┃    CARD       ┃
+ *    ┗━━━━━━━━━━━━━━━┛            ┗━━━━━━━━━━━━━━━┛
+ * 
+ * 'bottom-left' anchor:        'bottom-right' anchor:
+ *    ┏━━━━━━━━━━━━━━━┓            ┏━━━━━━━━━━━━━━━┓
+ *    ┃    CARD       ┃            ┃    CARD       ┃
+ *    ★━━━━━━━━━━━━━━━┛            ┗━━━━━━━━━━━━━━━★
  */
-function getCardStyle(anchor, starX, starY, isCompact) {
-  const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
-  const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
-  
+function calculatePosition(anchor, starX, starY, width, height) {
   switch (anchor) {
     case 'top-left':
-      // Star is at top-left corner of card
-      // Card extends right and down from star
+      // Star is at top-left corner
+      // Card extends to the RIGHT and DOWN
       return {
         left: starX,
         top: starY,
-        transformOrigin: 'left top'
+        originX: 'left',
+        originY: 'top'
       };
     
     case 'top-right':
-      // Star is at top-right corner of card
-      // Card extends left and down from star
+      // Star is at top-right corner
+      // Card extends to the LEFT and DOWN
       return {
         left: starX - width,
         top: starY,
-        transformOrigin: 'right top'
+        originX: 'right',
+        originY: 'top'
       };
     
     case 'bottom-left':
-      // Star is at bottom-left corner of card
-      // Card extends right and up from star
+      // Star is at bottom-left corner
+      // Card extends to the RIGHT and UP
       return {
         left: starX,
         top: starY - height,
-        transformOrigin: 'left bottom'
+        originX: 'left',
+        originY: 'bottom'
       };
     
     case 'bottom-right':
-      // Star is at bottom-right corner of card
-      // Card extends left and up from star
+      // Star is at bottom-right corner
+      // Card extends to the LEFT and UP
       return {
         left: starX - width,
         top: starY - height,
-        transformOrigin: 'right bottom'
+        originX: 'right',
+        originY: 'bottom'
       };
     
     default:
       // Fallback to top-left
+      console.warn('Invalid anchor:', anchor, '- using top-left');
       return {
         left: starX,
         top: starY,
-        transformOrigin: 'left top'
+        originX: 'left',
+        originY: 'top'
       };
   }
 }
@@ -82,9 +91,15 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
 
   const { screenPos, scale, opacity } = data;
   
-  // Determine if we should show compact mode (image only)
+  // Clamp raw scale
   const rawScale = Math.max(0.5, Math.min(0.85, scale));
+  
+  // Determine if compact mode (image only when zoomed out)
   const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused && !isHovered;
+  
+  // Current dimensions based on mode
+  const currentWidth = isCompact ? COMPACT_SIZE : CARD_WIDTH;
+  const currentHeight = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
   
   // Scale calculations
   const baseScale = isCompact ? 0.9 : 0.65;
@@ -96,27 +111,29 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  // Get position and transform origin based on anchor
-  const cardStyle = getCardStyle(anchor, screenPos.x, screenPos.y, isCompact);
+  // Calculate position with star at the anchor corner
+  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, currentWidth, currentHeight);
   
-  // Z-index: hovered > focused > base
+  // Z-index hierarchy
   let computedZIndex = zIndex || 1000;
   if (isFocused) computedZIndex = 2000;
   if (isHovered) computedZIndex = 2500;
 
-  // Compact mode - just show circular image
+  const transformOrigin = `${pos.originX} ${pos.originY}`;
+
+  // Compact mode - circular image only
   if (isCompact) {
     return (
       <div 
         className="popup-card compact"
         style={{
-          left: cardStyle.left,
-          top: cardStyle.top,
+          left: pos.left,
+          top: pos.top,
           width: COMPACT_SIZE,
           height: COMPACT_SIZE,
           transform: `scale(${finalScale})`,
-          transformOrigin: cardStyle.transformOrigin,
-          opacity: opacity,
+          transformOrigin,
+          opacity,
           zIndex: computedZIndex,
           pointerEvents: opacity > 0.3 ? 'auto' : 'none',
         }}
@@ -144,11 +161,13 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
     <div 
       className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''}`}
       style={{
-        left: cardStyle.left,
-        top: cardStyle.top,
+        left: pos.left,
+        top: pos.top,
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
         transform: `scale(${finalScale})`,
-        transformOrigin: cardStyle.transformOrigin,
-        opacity: opacity,
+        transformOrigin,
+        opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',
       }}
