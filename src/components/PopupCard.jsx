@@ -5,10 +5,12 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
-// Distance thresholds (based on Globe's minDistance=150, maxDistance=600)
 const MIN_DISTANCE = 150;
 const MAX_DISTANCE = 600;
 const COMPACT_DISTANCE = 350;
+
+// Stagger delay between cards (ms)
+const STAGGER_DELAY = 80;
 
 function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 0 }) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -54,42 +56,69 @@ function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 
   return { left, top, originX, originY };
 }
 
-const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset, onClose, onFocus, isFocused, zIndex }) {
+const PopupCard = memo(function PopupCard({ 
+  card, 
+  visibilityData, 
+  anchor, 
+  offset, 
+  onClose, 
+  onFocus, 
+  isFocused, 
+  zIndex,
+  staggerIndex = 0,
+  totalInGroup = 1
+}) {
   const [isHovered, setIsHovered] = useState(false);
-  const [animationState, setAnimationState] = useState('entering');
+  const [animationState, setAnimationState] = useState('waiting'); // 'waiting', 'entering', 'visible', 'exiting'
   const [isClosing, setIsClosing] = useState(false);
   const animationRef = useRef(null);
-  const hasEnteredRef = useRef(false);
+  const staggerTimeoutRef = useRef(null);
   
   const data = visibilityData?.[card.id];
   
+  // Handle staggered enter animation
   useEffect(() => {
-    if (data?.visible && !hasEnteredRef.current) {
-      hasEnteredRef.current = true;
-      setAnimationState('entering');
+    if (data?.visible && animationState === 'waiting') {
+      // Delay based on stagger index
+      const delay = staggerIndex * STAGGER_DELAY;
       
-      animationRef.current = requestAnimationFrame(() => {
+      staggerTimeoutRef.current = setTimeout(() => {
+        setAnimationState('entering');
+        
         animationRef.current = requestAnimationFrame(() => {
-          setAnimationState('visible');
+          animationRef.current = requestAnimationFrame(() => {
+            setAnimationState('visible');
+          });
         });
-      });
+      }, delay);
     }
     
     return () => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current);
       }
+      if (staggerTimeoutRef.current) {
+        clearTimeout(staggerTimeoutRef.current);
+      }
     };
-  }, [data?.visible]);
+  }, [data?.visible, staggerIndex, animationState]);
   
+  // Handle close with staggered animation (reverse order)
   const handleClose = (e) => {
     e.stopPropagation();
-    setIsClosing(true);
-    setAnimationState('exiting');
+    
+    // Calculate reverse stagger delay (last card closes first visually)
+    const reverseIndex = totalInGroup - 1 - staggerIndex;
+    const delay = reverseIndex * STAGGER_DELAY;
     
     setTimeout(() => {
-      onClose(card.id);
-    }, 200);
+      setIsClosing(true);
+      setAnimationState('exiting');
+      
+      setTimeout(() => {
+        onClose(card.id);
+      }, 200);
+    }, delay);
   };
   
   if (!data || !data.visible || data.opacity < 0.05) {
@@ -98,36 +127,26 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
 
   const { screenPos, distance, opacity } = data;
   
-  // Use raw distance for world-attached scaling
-  // At MIN_DISTANCE (150), scale should be ~1.0 (close up)
-  // At MAX_DISTANCE (600), scale should be ~0.25 (far away)
   const clampedDistance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, distance || 300));
-  
-  // Inverse relationship: closer = bigger, farther = smaller
-  // This creates a much more dramatic scaling effect
-  const worldScale = MIN_DISTANCE / clampedDistance; // 1.0 at 150, 0.25 at 600
+  const worldScale = MIN_DISTANCE / clampedDistance;
   
   const isCompact = clampedDistance > COMPACT_DISTANCE && !isFocused;
   
-  // Base scale 
   const baseScale = isCompact ? 0.8 : 1.0;
-  
   const focusBoost = isFocused ? 1.15 : 1;
   const hoverBoost = isHovered && !isFocused ? 1.08 : 1;
   
   // Animation scale
   let animScale = 1;
-  if (animationState === 'entering') {
+  if (animationState === 'waiting' || animationState === 'entering') {
     animScale = 0.3;
   } else if (animationState === 'exiting' || isClosing) {
     animScale = 0.3;
   }
   
-  // Final scale combines world distance with interactions
   let finalScale = baseScale * worldScale * focusBoost * hoverBoost * animScale;
   finalScale = Math.max(0.2, Math.min(1.3, finalScale));
   
-  // Scale offset by world scale so cards stay proportionally close to star
   const scaledOffset = {
     x: (offset?.x || 0) * worldScale,
     y: (offset?.y || 0) * worldScale
@@ -142,7 +161,7 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
   const transformOrigin = `${pos.originX} ${pos.originY}`;
   
   let animOpacity = opacity;
-  if (animationState === 'entering') {
+  if (animationState === 'waiting' || animationState === 'entering') {
     animOpacity = 0;
   } else if (animationState === 'exiting' || isClosing) {
     animOpacity = 0;
@@ -163,7 +182,7 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
         opacity: animOpacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 && animationState === 'visible' ? 'auto' : 'none',
-        transition: 'transform 0.2s ease-out, opacity 0.2s ease-out',
+        transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease-out',
       }}
       onClick={(e) => {
         e.stopPropagation();

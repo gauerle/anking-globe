@@ -21,19 +21,31 @@ const DEFAULT_STAR_COLOR = '#9333ea';
 /**
  * Group cards by location (lat/lng within threshold)
  */
-function groupCardsByLocation(cards, threshold = 0.5) {
+function groupCardsByLocation(cards, threshold = 3.0) {
   const groups = [];
   const assigned = new Set();
   
-  for (const card of cards) {
+  // Sort by lat then lng for consistent grouping
+  const sortedCards = [...cards].sort((a, b) => {
+    if (Math.abs(a.lat - b.lat) < 0.1) return a.lng - b.lng;
+    return a.lat - b.lat;
+  });
+  
+  for (const card of sortedCards) {
     if (assigned.has(card.id)) continue;
     
     const group = [card];
     assigned.add(card.id);
     
-    for (const other of cards) {
+    for (const other of sortedCards) {
       if (assigned.has(other.id)) continue;
-      if (Math.abs(card.lat - other.lat) < threshold && Math.abs(card.lng - other.lng) < threshold) {
+      
+      // Check proximity using Euclidean distance in degrees
+      const latDiff = Math.abs(card.lat - other.lat);
+      const lngDiff = Math.abs(card.lng - other.lng);
+      const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+      
+      if (distance < threshold) {
         group.push(other);
         assigned.add(other.id);
       }
@@ -403,9 +415,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     return beam;
   }, [parseColor, createStarBeamGeometry]);
 
-  // UPDATED: createStarMarker now accepts a cardGroup (array of cards at same location)
   const createStarMarker = useCallback((cardGroup, starTexture, glowTexture) => {
-    // cardGroup is an array of cards at the same location
     const primaryCard = cardGroup[0];
     const group = new THREE.Group();
     
@@ -419,7 +429,6 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     starContainer.rotation.z = baseRotation;
     starContainer.userData = { type: 'starContainer', baseRotation };
     
-    // Scale glow based on number of cards at this location
     const glowScale = 1 + Math.min(cardGroup.length - 1, 4) * 0.15;
     
     const glowMesh = new THREE.Mesh(
@@ -455,10 +464,13 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     
     const color = primaryCard.starColor || DEFAULT_STAR_COLOR;
     const beam = createLightBeam(color);
-    group.add(beam);
     beam.rotation.z = baseRotation;
+    group.add(beam);
     
-    // Use average location of all cards in group
+    // Store beam reference for easy access in animation loop
+    group.userData.beam = beam;
+    group.userData.starContainer = starContainer;
+    
     let avgLat = 0, avgLng = 0;
     for (const card of cardGroup) {
       avgLat += card.lat;
@@ -481,12 +493,10 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const targetPoint = group.position.clone().add(outwardDir);
     group.lookAt(targetPoint);
     
-    // Store ALL cards in this location group
-    group.userData = { 
-      cards: cardGroup,  // Array of all cards
-      card: primaryCard, // Keep for backward compatibility
-      locationKey: `${avgLat.toFixed(1)}_${avgLng.toFixed(1)}`
-    };
+    group.userData.cards = cardGroup;
+    group.userData.card = primaryCard;
+    group.userData.locationKey = `${avgLat.toFixed(1)}_${avgLng.toFixed(1)}`;
+    group.userData.baseRotation = baseRotation;
     
     for (const card of cardGroup) {
       markerOpacity.current[card.id] = 1;
@@ -841,10 +851,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         } else {
           marker.scale.setScalar(scale);
           
-          // Keep beam rotation synced with star container even when not selected
-          if (starContainer && beam) {
+          // Reset BOTH star container and beam to base rotation when not selected
+          if (starContainer) {
             const base = starContainer.userData.baseRotation || 0;
-            beam.rotation.z = base;
+            starContainer.rotation.z = base;
+            if (beam) beam.rotation.z = base;
           }
           
           marker.traverse((child) => {
@@ -1026,8 +1037,8 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     rayOpacityRef.current = {};
 
     // Group cards by location - creates merged stars
-    const locationGroups = groupCardsByLocation(cards, 0.5);
-    
+    const locationGroups = groupCardsByLocation(cards, 3.0); 
+      
     // Create ONE marker per location group
     locationGroups.forEach(cardGroup => {
       const primaryCard = cardGroup[0];

@@ -508,19 +508,37 @@ function App() {
           />
         )}
 
-        {selectedCardObjects.map((card, index) => (
-          <PopupCard
-            key={card.id}
-            card={card}
-            visibilityData={markerVisibility}
-            anchor={cardAnchors[card.id] || 'top-left'}
-            offset={cardOffsets[card.id] || { x: 0, y: 0 }}
-            onClose={handleClosePopup}
-            onFocus={handleFocusCard}
-            isFocused={focusedCard === card.id}
-            zIndex={1000 + index}
-          />
-        ))}
+        {selectedCardObjects.map((card, index) => {
+          // Find which location group this card belongs to and its index within that group
+          const cardVis = markerVisibility?.[card.id];
+          const starX = cardVis?.screenPos?.x ?? 0;
+          const starY = cardVis?.screenPos?.y ?? 0;
+          
+          // Find cards at the same star (same screen position)
+          const cardsAtSameStar = selectedCardObjects.filter(c => {
+            const vis = markerVisibility?.[c.id];
+            if (!vis?.screenPos) return false;
+            return Math.abs(vis.screenPos.x - starX) < 5 && Math.abs(vis.screenPos.y - starY) < 5;
+          });
+          
+          const indexInGroup = cardsAtSameStar.findIndex(c => c.id === card.id);
+          
+          return (
+            <PopupCard
+              key={card.id}
+              card={card}
+              visibilityData={markerVisibility}
+              anchor={cardAnchors[card.id] || 'top-left'}
+              offset={cardOffsets[card.id] || { x: 0, y: 0 }}
+              onClose={handleClosePopup}
+              onFocus={handleFocusCard}
+              isFocused={focusedCard === card.id}
+              zIndex={1000 + index}
+              staggerIndex={indexInGroup}
+              totalInGroup={cardsAtSameStar.length}
+            />
+          );
+        })}
 
         <div className={`globe-logo-container ${isEmbedMode ? 'embed' : ''}`}>
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="globe-logo" />
