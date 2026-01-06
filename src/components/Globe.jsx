@@ -33,6 +33,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const markerOpacity = useRef({});
   const starTexturesRef = useRef({});
   const prevVisibilityData = useRef({});
+  const adjustedPositionsRef = useRef({});
   const glowTextureRef = useRef(null);
   const selectedCardsRef = useRef(selectedCards);
   const onMarkerVisibilityChangeRef = useRef(onMarkerVisibilityChange);
@@ -499,6 +500,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     
     group.position.copy(testPos);
     
+    // Store the adjusted lat/lng for anchor positioning
+    adjustedPositionsRef.current[card.id] = { lat, lng };
+    
     const outwardDir = group.position.clone().normalize();
     const targetPoint = group.position.clone().add(outwardDir);
     group.lookAt(targetPoint);
@@ -857,11 +861,14 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const screenX = (screenVec.x * 0.5 + 0.5) * w;
         const screenY = (-screenVec.y * 0.5 + 0.5) * h;
         
+        const adjustedPos = adjustedPositionsRef.current[card.id] || { lat: card.lat, lng: card.lng };
         visibilityData[card.id] = {
           visible: marker.visible,
           screenPos: { x: screenX, y: screenY },
           scale,
-          opacity: newOpacity
+          opacity: newOpacity,
+          adjustedLat: adjustedPos.lat,
+          adjustedLng: adjustedPos.lng
         };
       }
       

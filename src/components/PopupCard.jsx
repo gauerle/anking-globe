@@ -5,37 +5,55 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
-// DISTANCE-BASED THRESHOLD (linear, intuitive!)
-// Cards become compact when camera is farther than this distance
-// 
-// Guide:
-//   150 = cards stay full almost always (requires max zoom)
-//   180 = cards compact only when fairly zoomed out
-//   220 = cards compact at medium zoom  
-//   280 = cards compact fairly quickly
-//   320 = cards compact very quickly
-//
-const COMPACT_DISTANCE = 250;
+// Distance-based threshold for compact mode
+const COMPACT_DISTANCE = 280;
 
-function calculatePosition(anchor, starX, starY, isCompact) {
+function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 0 }) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
   const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
   
+  let left, top, originX, originY;
+  
   switch (anchor) {
     case 'top-left':
-      return { left: starX, top: starY, originX: 'left', originY: 'top' };
+      left = starX;
+      top = starY;
+      originX = 'left';
+      originY = 'top';
+      break;
     case 'top-right':
-      return { left: starX - width, top: starY, originX: 'right', originY: 'top' };
+      left = starX - width;
+      top = starY;
+      originX = 'right';
+      originY = 'top';
+      break;
     case 'bottom-left':
-      return { left: starX, top: starY - height, originX: 'left', originY: 'bottom' };
+      left = starX;
+      top = starY - height;
+      originX = 'left';
+      originY = 'bottom';
+      break;
     case 'bottom-right':
-      return { left: starX - width, top: starY - height, originX: 'right', originY: 'bottom' };
+      left = starX - width;
+      top = starY - height;
+      originX = 'right';
+      originY = 'bottom';
+      break;
     default:
-      return { left: starX, top: starY, originX: 'left', originY: 'top' };
+      left = starX;
+      top = starY;
+      originX = 'left';
+      originY = 'top';
   }
+  
+  // Apply fuzzy offset
+  left += offset.x;
+  top += offset.y;
+  
+  return { left, top, originX, originY };
 }
 
-const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClose, onFocus, isFocused, zIndex }) {
+const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
   
   const data = visibilityData?.[card.id];
@@ -46,13 +64,10 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
 
   const { screenPos, scale, opacity } = data;
   
-  // Increased max from 0.85 to 1.5 to allow closer zoom detection
   const rawScale = Math.max(0.5, Math.min(1.5, scale));
   
-  // Convert scale back to approximate distance
+  // Convert scale to distance for threshold check
   const approxDistance = 220 / rawScale;
-  
-  // Compact when distance exceeds threshold (and not focused)
   const isCompact = approxDistance > COMPACT_DISTANCE && !isFocused;
   
   const baseScale = isCompact ? 0.85 : 0.75;
@@ -64,7 +79,7 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, isCompact);
+  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, isCompact, offset || { x: 0, y: 0 });
   
   let computedZIndex = zIndex || 1000;
   if (isFocused) computedZIndex = 2000;
