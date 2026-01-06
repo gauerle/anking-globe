@@ -9,12 +9,15 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 import { useGroups } from './hooks/useGroups';
 
+
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
-// Fuzzy offset for cards sharing the same star (in pixels)
-const FUZZY_OFFSET = 15;
+// Base offset distance - increased for better separation
+const BASE_OFFSET = 35;
+// Additional offset per ring (for 5+ cards)
+const RING_OFFSET = 45;
 
 /**
  * Group cards that share the same location (or very close)
@@ -149,13 +152,82 @@ function findClusters(cards, threshold = 15) {
 }
 
 /**
- * Assign anchors to cards sharing the same star with fuzzy offset
+ * Generate radial positions for N cards around a center point
+ * Uses a spiral pattern for better distribution
+ */
+function generateRadialPositions(count) {
+  const positions = [];
+  
+  if (count === 1) {
+    positions.push({ angle: 0, distance: 0, anchor: 'top-left' });
+    return positions;
+  }
+  
+  if (count === 2) {
+    // Two cards: opposite sides
+    positions.push({ angle: -Math.PI / 4, distance: BASE_OFFSET, anchor: 'top-right' });
+    positions.push({ angle: 3 * Math.PI / 4, distance: BASE_OFFSET, anchor: 'bottom-left' });
+    return positions;
+  }
+  
+  if (count === 3) {
+    // Three cards: triangle
+    positions.push({ angle: -Math.PI / 2, distance: BASE_OFFSET, anchor: 'top-right' });
+    positions.push({ angle: Math.PI / 6, distance: BASE_OFFSET, anchor: 'bottom-left' });
+    positions.push({ angle: 5 * Math.PI / 6, distance: BASE_OFFSET, anchor: 'bottom-right' });
+    return positions;
+  }
+  
+  if (count === 4) {
+    // Four cards: one in each corner
+    positions.push({ angle: -Math.PI / 4, distance: BASE_OFFSET, anchor: 'top-right' });
+    positions.push({ angle: -3 * Math.PI / 4, distance: BASE_OFFSET, anchor: 'top-left' });
+    positions.push({ angle: Math.PI / 4, distance: BASE_OFFSET, anchor: 'bottom-right' });
+    positions.push({ angle: 3 * Math.PI / 4, distance: BASE_OFFSET, anchor: 'bottom-left' });
+    return positions;
+  }
+  
+  // 5+ cards: spiral pattern with multiple rings
+  const cardsPerRing = 6;
+  
+  for (let i = 0; i < count; i++) {
+    const ring = Math.floor(i / cardsPerRing);
+    const posInRing = i % cardsPerRing;
+    const cardsInThisRing = Math.min(cardsPerRing, count - ring * cardsPerRing);
+    
+    // Angle: distribute evenly in the ring, offset each ring slightly
+    const angleOffset = ring * (Math.PI / cardsPerRing);
+    const angle = (2 * Math.PI * posInRing / cardsInThisRing) + angleOffset - Math.PI / 2;
+    
+    // Distance: increases with each ring
+    const distance = BASE_OFFSET + ring * RING_OFFSET;
+    
+    // Determine best anchor based on angle
+    let anchor;
+    const normalizedAngle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+    if (normalizedAngle < Math.PI / 2) {
+      anchor = 'top-left'; // Card extends down-right from star
+    } else if (normalizedAngle < Math.PI) {
+      anchor = 'top-right'; // Card extends down-left
+    } else if (normalizedAngle < 3 * Math.PI / 2) {
+      anchor = 'bottom-right'; // Card extends up-left
+    } else {
+      anchor = 'bottom-left'; // Card extends up-right
+    }
+    
+    positions.push({ angle, distance, anchor });
+  }
+  
+  return positions;
+}
+
+/**
+ * Assign anchors and offsets to cards sharing the same star using radial layout
  */
 function assignSharedStarAnchors(group, anchors, offsets) {
   const count = group.length;
   
   if (count === 1) {
-    // Single card - position based on hemisphere
     const card = group[0];
     const extendRight = card.lng < -30;
     const extendDown = card.lat > 20;
@@ -167,28 +239,17 @@ function assignSharedStarAnchors(group, anchors, offsets) {
     return;
   }
   
-  // Multiple cards at same star - spread them to different corners with fuzzy offset
-  const cornerOrder = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
-  
-  // Fuzzy offsets for each corner (push cards slightly outward)
-  const cornerOffsets = {
-    'top-left': { x: -FUZZY_OFFSET, y: -FUZZY_OFFSET },
-    'top-right': { x: FUZZY_OFFSET, y: -FUZZY_OFFSET },
-    'bottom-left': { x: -FUZZY_OFFSET, y: FUZZY_OFFSET },
-    'bottom-right': { x: FUZZY_OFFSET, y: FUZZY_OFFSET }
-  };
+  // Get radial positions for this group
+  const positions = generateRadialPositions(count);
   
   for (let i = 0; i < count; i++) {
     const card = group[i];
-    const cornerIndex = i % 4;
-    const corner = cornerOrder[cornerIndex];
-    anchors[card.id] = corner;
+    const pos = positions[i];
     
-    // Apply fuzzy offset, with extra offset for 5+ cards
-    const extraMultiplier = Math.floor(i / 4) + 1;
+    anchors[card.id] = pos.anchor;
     offsets[card.id] = {
-      x: cornerOffsets[corner].x * extraMultiplier,
-      y: cornerOffsets[corner].y * extraMultiplier
+      x: Math.cos(pos.angle) * pos.distance,
+      y: Math.sin(pos.angle) * pos.distance
     };
   }
 }
@@ -202,7 +263,7 @@ function initialAssignment(cards, anchors) {
   for (const cluster of clusters) {
     if (cluster.length === 1) {
       const card = cluster[0];
-      if (anchors[card.id]) continue; // Already assigned by shared star
+      if (anchors[card.id]) continue;
       const extendRight = card.lng < -30;
       const extendDown = card.lat > 20;
       anchors[card.id] = getAnchorExtendingToward(
@@ -221,7 +282,7 @@ function initialAssignment(cards, anchors) {
     centroidLng /= cluster.length;
     
     for (const card of cluster) {
-      if (anchors[card.id]) continue; // Already assigned by shared star
+      if (anchors[card.id]) continue;
       const dx = card.lng - centroidLng;
       const dy = card.lat - centroidLat;
       anchors[card.id] = getAnchorExtendingToward(
@@ -231,7 +292,6 @@ function initialAssignment(cards, anchors) {
     }
   }
 }
-
 /**
  * Iterative single-card improvement
  */
