@@ -1,232 +1,107 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
+import React, { useState, memo } from 'react';
 import { getImageUrl } from '../utils/api';
 
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
-const MIN_DISTANCE = 150;
-const MAX_DISTANCE = 600;
-const COMPACT_DISTANCE = 350;
-const STAGGER_DELAY = 80;
+// Distance-based threshold for compact mode
+const COMPACT_DISTANCE = 280;
 
-const PopupCard = memo(function PopupCard({ 
-  card, 
-  visibilityData, 
-  position,
-  anchor,
-  onClose, 
-  onFocus, 
-  isFocused, 
-  zIndex,
-  staggerIndex = 0,
-  totalInGroup = 1,
-  worldScale = 1,
-  collisionScale = 1
-}) {
-  const [isHovered, setIsHovered] = useState(false);
-  const [animationState, setAnimationState] = useState('waiting');
-  const [isClosing, setIsClosing] = useState(false);
+function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 0 }) {
+  const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
+  const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
   
-  // Smooth position tracking
-  const [smoothPosition, setSmoothPosition] = useState(null);
-  const animationFrameRef = useRef(null);
-  const staggerTimeoutRef = useRef(null);
+  let left, top, originX, originY;
+  
+  switch (anchor) {
+    case 'top-left':
+      left = starX;
+      top = starY;
+      originX = 'left';
+      originY = 'top';
+      break;
+    case 'top-right':
+      left = starX - width;
+      top = starY;
+      originX = 'right';
+      originY = 'top';
+      break;
+    case 'bottom-left':
+      left = starX;
+      top = starY - height;
+      originX = 'left';
+      originY = 'bottom';
+      break;
+    case 'bottom-right':
+      left = starX - width;
+      top = starY - height;
+      originX = 'right';
+      originY = 'bottom';
+      break;
+    default:
+      left = starX;
+      top = starY;
+      originX = 'left';
+      originY = 'top';
+  }
+  
+  // Apply fuzzy offset
+  left += offset.x;
+  top += offset.y;
+  
+  return { left, top, originX, originY };
+}
+
+const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset, onClose, onFocus, isFocused, zIndex }) {
+  const [isHovered, setIsHovered] = useState(false);
   
   const data = visibilityData?.[card.id];
-  
-  // Smooth position updates
-  useEffect(() => {
-    if (!data?.visible) return;
-    
-    const isSingle = position?.isSingle ?? true;
-    const targetX = isSingle 
-      ? (position?.starX ?? data.screenPos?.x ?? 0)
-      : (position?.x ?? data.screenPos?.x ?? 0);
-    const targetY = isSingle
-      ? (position?.starY ?? data.screenPos?.y ?? 0)
-      : (position?.y ?? data.screenPos?.y ?? 0);
-    
-    if (!smoothPosition) {
-      // Initial position (from star center for animation)
-      setSmoothPosition({ x: position?.starX ?? targetX, y: position?.starY ?? targetY });
-    }
-    
-    const animate = () => {
-      setSmoothPosition(prev => {
-        if (!prev) return { x: targetX, y: targetY };
-        
-        const dx = targetX - prev.x;
-        const dy = targetY - prev.y;
-        
-        const lerp = 0.12;
-        
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
-          return { x: targetX, y: targetY };
-        }
-        
-        return {
-          x: prev.x + dx * lerp,
-          y: prev.y + dy * lerp
-        };
-      });
-      
-      animationFrameRef.current = requestAnimationFrame(animate);
-    };
-    
-    animationFrameRef.current = requestAnimationFrame(animate);
-    
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [position, data?.visible, data?.screenPos, smoothPosition]);
-  
-  // Staggered enter animation
-  useEffect(() => {
-    if (data?.visible && animationState === 'waiting') {
-      const delay = staggerIndex * STAGGER_DELAY;
-      
-      staggerTimeoutRef.current = setTimeout(() => {
-        setAnimationState('entering');
-        
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setAnimationState('visible');
-          });
-        });
-      }, delay);
-    }
-    
-    return () => {
-      if (staggerTimeoutRef.current) {
-        clearTimeout(staggerTimeoutRef.current);
-      }
-    };
-  }, [data?.visible, staggerIndex, animationState]);
-  
-  const handleClose = (e) => {
-    e.stopPropagation();
-    
-    const reverseIndex = totalInGroup - 1 - staggerIndex;
-    const delay = reverseIndex * STAGGER_DELAY;
-    
-    setTimeout(() => {
-      setIsClosing(true);
-      setAnimationState('exiting');
-      
-      setTimeout(() => {
-        onClose(card.id);
-      }, 200);
-    }, delay);
-  };
   
   if (!data || !data.visible || data.opacity < 0.05) {
     return null;
   }
 
-  const { opacity, distance } = data;
+  const { screenPos, scale, opacity } = data;
   
-  const clampedDistance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, distance || 300));
-  const isCompact = clampedDistance > COMPACT_DISTANCE && !isFocused;
+  const rawScale = Math.max(0.5, Math.min(1.5, scale));
   
-  const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
-  const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
+  // Convert scale to distance for threshold check
+  const approxDistance = 220 / rawScale;
+  const isCompact = approxDistance > COMPACT_DISTANCE && !isFocused;
   
-  // Use position from collision system, or fall back to star position
-  const isSingle = position?.isSingle ?? true;
-  const displayAnchor = position?.anchor || anchor || 'top-left';
+  const baseScale = isCompact ? 0.85 : 0.75;
+  const minScale = isCompact ? 0.55 : 0.5;
+  const maxScale = isCompact ? 1.0 : 1.1;
+  const focusBoost = isFocused ? 1.5 : 1;
+  const hoverBoost = isHovered && !isFocused ? 1.15 : 1;
   
-  // For smooth animation, lerp to target position
-  let targetX, targetY;
+  let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
+  finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  if (isSingle) {
-    // Single card: corner at star center
-    targetX = position?.starX ?? data.screenPos?.x ?? 0;
-    targetY = position?.starY ?? data.screenPos?.y ?? 0;
-  } else {
-    // Multi-card: use ring position
-    targetX = position?.x ?? data.screenPos?.x ?? 0;
-    targetY = position?.y ?? data.screenPos?.y ?? 0;
-  }
-  
-  // Use smooth position or target
-  const displayX = smoothPosition?.x ?? targetX;
-  const displayY = smoothPosition?.y ?? targetY;
-  
-  // Calculate position based on anchor
-  let left = displayX;
-  let top = displayY;
-  let originX = 'left';
-  let originY = 'top';
-  
-  switch (displayAnchor) {
-    case 'top-right':
-      left = displayX - width;
-      originX = 'right';
-      break;
-    case 'bottom-left':
-      top = displayY - height;
-      originY = 'bottom';
-      break;
-    case 'bottom-right':
-      left = displayX - width;
-      top = displayY - height;
-      originX = 'right';
-      originY = 'bottom';
-      break;
-    default: // top-left
-      break;
-  }
-  
-  // Scale calculations
-  const baseScale = isCompact ? 0.8 : 1.0;
-  const focusBoost = isFocused ? 1.15 : 1;
-  const hoverBoost = isHovered ? 1.2 : 1;
-  
-  // Animation scale
-  let animScale = 1;
-  if (animationState === 'waiting' || animationState === 'entering') {
-    animScale = 0.3;
-  } else if (animationState === 'exiting' || isClosing) {
-    animScale = 0.3;
-  }
-  
-  // Final scale includes collision scale (from App.jsx)
-  const positionScale = position?.scale ?? collisionScale ?? 1;
-  let finalScale = baseScale * worldScale * positionScale * focusBoost * hoverBoost * animScale;
-  finalScale = Math.max(0.2, Math.min(1.4, finalScale));
-  
-  // Opacity
-  let animOpacity = opacity;
-  if (animationState === 'waiting' || animationState === 'entering') {
-    animOpacity = 0;
-  } else if (animationState === 'exiting' || isClosing) {
-    animOpacity = 0;
-  }
+  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, isCompact, offset || { x: 0, y: 0 });
   
   let computedZIndex = zIndex || 1000;
   if (isFocused) computedZIndex = 2000;
   if (isHovered) computedZIndex = 2500;
 
-  const transformOrigin = `${originX} ${originY}`;
-  const infoText = [card.title, card.university].filter(Boolean).join(' · ');
+  const transformOrigin = `${pos.originX} ${pos.originY}`;
+  
+  const infoText = [card.title, card.university].filter(Boolean).join(' Â· ');
 
   return (
     <div 
       className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''} ${isCompact ? 'compact' : ''}`}
       style={{
-        left,
-        top,
-        width,
-        height,
+        left: pos.left,
+        top: pos.top,
+        width: isCompact ? COMPACT_SIZE : CARD_WIDTH,
+        height: isCompact ? COMPACT_SIZE : CARD_HEIGHT,
         transform: `scale(${finalScale})`,
         transformOrigin,
-        opacity: animOpacity,
+        opacity,
         zIndex: computedZIndex,
-        pointerEvents: opacity > 0.3 && animationState === 'visible' ? 'auto' : 'none',
-        transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease-out',
+        pointerEvents: opacity > 0.3 ? 'auto' : 'none',
       }}
       onClick={(e) => {
         e.stopPropagation();
@@ -263,7 +138,10 @@ const PopupCard = memo(function PopupCard({
         
         <button 
           className="card-close-btn" 
-          onClick={handleClose}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose(card.id);
+          }}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
             <line x1="18" y1="6" x2="6" y2="18"/>

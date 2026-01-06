@@ -169,7 +169,7 @@ function ControlsPanel({
                       />
                       <span className="member-label-text">{card.name}</span>
                       {selectedCards.includes(card.id) && (
-                        <span className="card-open-indicator">●</span>
+                        <span className="card-open-indicator">â—</span>
                       )}
                     </label>
                   ))}
@@ -220,7 +220,7 @@ function ControlsPanel({
                             />
                             <span className="member-label-text">{card.name}</span>
                             {selectedCards.includes(card.id) && (
-                              <span className="card-open-indicator">●</span>
+                              <span className="card-open-indicator">â—</span>
                             )}
                           </label>
                         ))
