@@ -1,4 +1,4 @@
-console.log('APP VERSION 21 LOADED');
+console.log('APP VERSION 29 LOADED - MERGED STAR CLUSTERS');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -9,14 +9,10 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 import { useGroups } from './hooks/useGroups';
 
-// Back to original card width
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
-/**
- * Get the anchor that extends the card in a given direction
- */
 function getAnchorExtendingToward(awayX, awayY) {
   if (awayX >= 0 && awayY >= 0) return 'top-left';
   if (awayX < 0 && awayY >= 0) return 'top-right';
@@ -24,9 +20,6 @@ function getAnchorExtendingToward(awayX, awayY) {
   return 'bottom-right';
 }
 
-/**
- * Calculate card bounds given star position and anchor
- */
 function getCardBounds(lat, lng, anchor) {
   const starX = (lng + 180) * 4;
   const starY = (90 - lat) * 4;
@@ -42,18 +35,12 @@ function getCardBounds(lat, lng, anchor) {
   return { left, top, right: left + CARD_WIDTH, bottom: top + CARD_HEIGHT };
 }
 
-/**
- * Calculate overlap area between two boxes
- */
 function getOverlapArea(box1, box2) {
   const xOverlap = Math.max(0, Math.min(box1.right, box2.right) - Math.max(box1.left, box2.left));
   const yOverlap = Math.max(0, Math.min(box1.bottom, box2.bottom) - Math.max(box1.top, box2.top));
   return xOverlap * yOverlap;
 }
 
-/**
- * Calculate total pairwise overlap for all cards
- */
 function calculateTotalOverlap(cards, anchors) {
   let total = 0;
   for (let i = 0; i < cards.length; i++) {
@@ -66,9 +53,6 @@ function calculateTotalOverlap(cards, anchors) {
   return total;
 }
 
-/**
- * Calculate overlap for a single card against all others
- */
 function calculateCardOverlap(card, cards, anchors) {
   let total = 0;
   const bounds1 = getCardBounds(card.lat, card.lng, anchors[card.id]);
@@ -80,9 +64,6 @@ function calculateCardOverlap(card, cards, anchors) {
   return total;
 }
 
-/**
- * Find clusters of nearby cards
- */
 function findClusters(cards, threshold = 15) {
   const clusters = [];
   const assigned = new Set();
@@ -115,9 +96,6 @@ function findClusters(cards, threshold = 15) {
   return clusters;
 }
 
-/**
- * ROUND 1: Initial assignment based on spread from centroid
- */
 function initialAssignment(cards) {
   const anchors = {};
   const clusters = findClusters(cards, 18);
@@ -155,9 +133,6 @@ function initialAssignment(cards) {
   return anchors;
 }
 
-/**
- * ROUND 2: Iterative single-card improvement
- */
 function improveAnchors(cards, anchors, maxIterations = 10) {
   let improved = true;
   let iteration = 0;
@@ -198,9 +173,6 @@ function improveAnchors(cards, anchors, maxIterations = 10) {
   return iteration;
 }
 
-/**
- * ROUND 3: Pairwise swap optimization
- */
 function pairwiseOptimization(cards, anchors) {
   let improved = true;
   let swaps = 0;
@@ -246,21 +218,14 @@ function pairwiseOptimization(cards, anchors) {
   return swaps;
 }
 
-/**
- * ROUND 4: Exhaustive search for remaining overlapping cards
- */
 function exhaustiveFixRemaining(cards, anchors) {
   let fixes = 0;
-  
-  // Find cards that still have overlap
   const overlappingCards = cards.filter(card => calculateCardOverlap(card, cards, anchors) > 0);
   
   for (const card of overlappingCards) {
-    const currentOverlap = calculateCardOverlap(card, cards, anchors);
     let bestAnchor = anchors[card.id];
     let bestTotalOverlap = calculateTotalOverlap(cards, anchors);
     
-    // Try each anchor and pick the one that minimizes TOTAL overlap
     for (const anchor of CORNERS) {
       anchors[card.id] = anchor;
       const newTotal = calculateTotalOverlap(cards, anchors);
@@ -278,9 +243,6 @@ function exhaustiveFixRemaining(cards, anchors) {
   return fixes;
 }
 
-/**
- * ROUND 5: Global hill climbing with random restarts
- */
 function globalOptimization(cards, anchors) {
   const originalTotal = calculateTotalOverlap(cards, anchors);
   if (originalTotal === 0) return 0;
@@ -289,17 +251,14 @@ function globalOptimization(cards, anchors) {
   let bestTotal = originalTotal;
   let improvements = 0;
   
-  // Try different starting configurations
   for (let restart = 0; restart < 3; restart++) {
     const testAnchors = { ...anchors };
     
-    // Randomly perturb some assignments
     const cardsToPerturb = cards.filter(() => Math.random() < 0.3);
     for (const card of cardsToPerturb) {
       testAnchors[card.id] = CORNERS[Math.floor(Math.random() * 4)];
     }
     
-    // Run improvement rounds on this configuration
     improveAnchors(cards, testAnchors, 5);
     pairwiseOptimization(cards, testAnchors);
     
@@ -311,14 +270,10 @@ function globalOptimization(cards, anchors) {
     }
   }
   
-  // Copy best back
   Object.assign(anchors, bestAnchors);
   return improvements;
 }
 
-/**
- * ROUND 6: Final local search - try all combinations for small overlapping groups
- */
 function finalLocalSearch(cards, anchors) {
   const overlappingCards = cards.filter(card => calculateCardOverlap(card, cards, anchors) > 0);
   
@@ -326,7 +281,6 @@ function finalLocalSearch(cards, anchors) {
     return 0;
   }
   
-  // Try all combinations for the overlapping subset
   let bestTotal = calculateTotalOverlap(cards, anchors);
   let bestConfig = overlappingCards.map(c => anchors[c.id]);
   let improvements = 0;
@@ -348,7 +302,6 @@ function finalLocalSearch(cards, anchors) {
     }
   }
   
-  // Apply best config
   overlappingCards.forEach((card, i) => {
     anchors[card.id] = bestConfig[i];
   });
@@ -356,45 +309,35 @@ function finalLocalSearch(cards, anchors) {
   return improvements;
 }
 
-/**
- * Main anchor computation with refined multi-round optimization
- */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
   console.log('=== Computing card anchors (refined multi-round) ===');
   
-  // Round 1: Initial spread-from-centroid
   let anchors = initialAssignment(cards);
   let overlap = calculateTotalOverlap(cards, anchors);
   console.log(`Round 1 (initial): overlap = ${overlap.toFixed(0)}`);
   
-  // Round 2: Iterative single-card improvement
   const iterations = improveAnchors(cards, anchors, 15);
   overlap = calculateTotalOverlap(cards, anchors);
   console.log(`Round 2 (${iterations} iters): overlap = ${overlap.toFixed(0)}`);
   
-  // Round 3: Pairwise swap
   const swaps = pairwiseOptimization(cards, anchors);
   overlap = calculateTotalOverlap(cards, anchors);
   console.log(`Round 3 (${swaps} swaps): overlap = ${overlap.toFixed(0)}`);
   
-  // Round 4: Exhaustive fix for remaining
   const fixes = exhaustiveFixRemaining(cards, anchors);
   overlap = calculateTotalOverlap(cards, anchors);
   console.log(`Round 4 (${fixes} fixes): overlap = ${overlap.toFixed(0)}`);
   
-  // Round 5: Global optimization with restarts
   const globalImprovements = globalOptimization(cards, anchors);
   overlap = calculateTotalOverlap(cards, anchors);
   console.log(`Round 5 (${globalImprovements} global): overlap = ${overlap.toFixed(0)}`);
   
-  // Round 6: Final local search
   const localFixes = finalLocalSearch(cards, anchors);
   overlap = calculateTotalOverlap(cards, anchors);
   console.log(`Round 6 (${localFixes} local): overlap = ${overlap.toFixed(0)}`);
   
-  // Log final
   console.log('Final anchors:');
   for (const card of cards) {
     const cardOverlap = calculateCardOverlap(card, cards, anchors);
@@ -496,16 +439,50 @@ function App() {
     });
   }, [cards, focusedCard]);
 
-  const handleMarkerClick = useCallback((card) => {
+  // Handle marker click - now receives array of cards for clusters
+  const handleMarkerClick = useCallback((clickedCards) => {
     resetAutoRotateTimer();
-    if (focusedCard === card.id) {
-      setSelectedCards(prev => prev.filter(id => id !== card.id));
+    
+    // Normalize to array
+    const cardArray = Array.isArray(clickedCards) ? clickedCards : [clickedCards];
+    
+    if (cardArray.length === 0) return;
+    
+    // Check if clicking on already-focused single card
+    if (cardArray.length === 1 && focusedCard === cardArray[0].id) {
+      setSelectedCards(prev => prev.filter(id => id !== cardArray[0].id));
       setFocusedCard(null);
       return;
     }
-    setSelectedCards(prev => prev.includes(card.id) ? prev : [...prev, card.id]);
-    setFocusedCard(card.id);
-  }, [resetAutoRotateTimer, focusedCard]);
+    
+    // Check if ALL cards in this cluster are already selected
+    const allSelected = cardArray.every(card => 
+      selectedCards.includes(card.id)
+    );
+    
+    if (allSelected) {
+      // Clicking again on fully-selected cluster - close all
+      setSelectedCards(prev => 
+        prev.filter(id => !cardArray.some(c => c.id === id))
+      );
+      setFocusedCard(null);
+      return;
+    }
+    
+    // Add all cards from cluster to selection
+    setSelectedCards(prev => {
+      const newSelection = [...prev];
+      for (const card of cardArray) {
+        if (!newSelection.includes(card.id)) {
+          newSelection.push(card.id);
+        }
+      }
+      return newSelection;
+    });
+    
+    // Focus on first card in cluster
+    setFocusedCard(cardArray[0].id);
+  }, [resetAutoRotateTimer, focusedCard, selectedCards]);
 
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
