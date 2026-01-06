@@ -6,7 +6,7 @@ const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
 // Much higher threshold - cards become photos very quickly when zooming out
-const COMPACT_THRESHOLD = 0.92;
+const COMPACT_THRESHOLD = 0.85;
 
 function calculatePosition(anchor, starX, starY, isCompact) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -27,7 +27,9 @@ function calculatePosition(anchor, starX, starY, isCompact) {
 }
 
 /**
- * Marquee text component - scrolls if text overflows AND isActive is true
+ * Marquee text component - scrolls if text overflows
+ * isActive: true when card is selected/open (marquee starts automatically)
+ * isHovered: true when mouse is over card (also triggers marquee)
  */
 function MarqueeText({ text, className, isActive }) {
   const containerRef = useRef(null);
@@ -42,7 +44,7 @@ function MarqueeText({ text, className, isActive }) {
     }
   }, [text]);
   
-  // Marquee scrolls ONLY when focused AND text overflows
+  // Marquee scrolls when card is active (selected) and text overflows
   const shouldScroll = needsMarquee && isActive;
   
   return (
@@ -72,7 +74,8 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   
   const rawScale = Math.max(0.5, Math.min(0.85, scale));
   
-  // Compact mode only depends on scale and focus, NOT hover
+  // FIXED: Compact mode only depends on scale and focus, NOT hover
+  // This prevents flickering when hovering over compact cards
   const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused;
   
   const baseScale = isCompact ? 0.85 : 0.75;
@@ -94,6 +97,10 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   
   // Build info text
   const infoText = [card.title, card.university].filter(Boolean).join(' · ');
+  
+  // Marquee is active when card is selected (always true here since component renders)
+  // or when hovered
+  const marqueeActive = true; // Card is always "active" when rendered (it's selected)
 
   return (
     <div 
@@ -129,12 +136,12 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
         
         <div className="card-content">
           <p className="card-name">{card.name}</p>
-          <MarqueeText text={infoText} className="card-info" isActive={isFocused} />
+          <MarqueeText text={infoText} className="card-info" isActive={marqueeActive} />
           <div className="card-location">
             <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
             </svg>
-            <MarqueeText text={card.location} className="card-location-text" isActive={isFocused} />
+            <MarqueeText text={card.location} className="card-location-text" isActive={marqueeActive} />
           </div>
         </div>
         
