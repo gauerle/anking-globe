@@ -5,16 +5,20 @@ import { getImageUrl } from '../utils/api';
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
-// Compact mode dimensions
-const COMPACT_SIZE = 36;
+// Compact mode - just the square image
+const COMPACT_SIZE = 56; // Same as card image size
 
-// Scale threshold for compact mode (lowered so cards stay full longer when zooming out)
-const COMPACT_THRESHOLD = 0.42;
+// Scale threshold for compact mode (higher = triggers sooner when zooming out)
+const COMPACT_THRESHOLD = 0.62;
 
 /**
- * Calculate card position so that the star is at the specified corner.
+ * Calculate card position based on anchor.
+ * In compact mode, the card is just a square image.
  */
-function calculatePosition(anchor, starX, starY, width, height) {
+function calculatePosition(anchor, starX, starY, isCompact) {
+  const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
+  const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
+  
   switch (anchor) {
     case 'top-left':
       return { left: starX, top: starY, originX: 'left', originY: 'top' };
@@ -25,7 +29,6 @@ function calculatePosition(anchor, starX, starY, width, height) {
     case 'bottom-right':
       return { left: starX - width, top: starY - height, originX: 'right', originY: 'bottom' };
     default:
-      console.warn('Invalid anchor:', anchor, '- using top-left');
       return { left: starX, top: starY, originX: 'left', originY: 'top' };
   }
 }
@@ -44,25 +47,21 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   // Clamp raw scale
   const rawScale = Math.max(0.5, Math.min(0.85, scale));
   
-  // Determine if compact mode (image only when zoomed out far)
+  // Determine if compact mode (square image only when zoomed out)
   const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused && !isHovered;
   
-  // Current dimensions based on mode
-  const currentWidth = isCompact ? COMPACT_SIZE : CARD_WIDTH;
-  const currentHeight = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
-  
-  // Scale calculations - INCREASED base size
-  const baseScale = isCompact ? 0.9 : 0.75;  // Was 0.65
-  const minScale = isCompact ? 0.6 : 0.5;    // Was 0.45
-  const maxScale = isCompact ? 1.0 : 0.9;    // Was 0.8
+  // Scale calculations
+  const baseScale = isCompact ? 0.85 : 0.75;
+  const minScale = isCompact ? 0.55 : 0.5;
+  const maxScale = isCompact ? 1.0 : 0.9;
   const focusBoost = isFocused ? 1.2 : 1;
-  const hoverBoost = isHovered ? 1.15 : 1;   // Hover now scales up even when focused
+  const hoverBoost = isHovered ? 1.15 : 1;
   
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  // Calculate position with star at the anchor corner
-  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, currentWidth, currentHeight);
+  // Calculate position
+  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, isCompact);
   
   // Z-index hierarchy
   let computedZIndex = zIndex || 1000;
@@ -71,50 +70,14 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
 
   const transformOrigin = `${pos.originX} ${pos.originY}`;
 
-  // Compact mode - circular image only
-  if (isCompact) {
-    return (
-      <div 
-        className="popup-card compact"
-        style={{
-          left: pos.left,
-          top: pos.top,
-          width: COMPACT_SIZE,
-          height: COMPACT_SIZE,
-          transform: `scale(${finalScale})`,
-          transformOrigin,
-          opacity,
-          zIndex: computedZIndex,
-          pointerEvents: opacity > 0.3 ? 'auto' : 'none',
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          onFocus(card.id);
-        }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
-        <img 
-          src={getImageUrl(card.image)} 
-          alt={card.name}
-          className="compact-image"
-          onError={(e) => {
-            e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(card.name)}&background=9333ea&color=fff`;
-          }}
-        />
-      </div>
-    );
-  }
-
-  // Full card mode
   return (
     <div 
-      className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''}`}
+      className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''} ${isCompact ? 'compact' : ''}`}
       style={{
         left: pos.left,
         top: pos.top,
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        width: isCompact ? COMPACT_SIZE : CARD_WIDTH,
+        height: isCompact ? COMPACT_SIZE : CARD_HEIGHT,
         transform: `scale(${finalScale})`,
         transformOrigin,
         opacity,
@@ -138,6 +101,8 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
             }}
           />
         </div>
+        
+        {/* Text content - hidden in compact mode via CSS */}
         <div className="card-content">
           <p className="card-name">{card.name}</p>
           <p className="card-info">
@@ -150,6 +115,8 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
             <span>{card.location}</span>
           </span>
         </div>
+        
+        {/* Close button - hidden in compact mode via CSS */}
         <button 
           className="card-close-btn" 
           onClick={(e) => {

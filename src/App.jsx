@@ -1,4 +1,4 @@
-console.log('APP VERSION 16 LOADED');
+console.log('APP VERSION 17 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -14,13 +14,34 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
 // Simulation viewport
-const SIM_WIDTH = 1200;
+const SIM_WIDTH = 800;
 const SIM_HEIGHT = 800;
+const GLOBE_RADIUS_SIM = 350;
 
+/**
+ * Convert lat/lng to screen position using SPHERICAL ORTHOGRAPHIC projection
+ * This simulates how points appear on a front-facing globe view
+ */
 function latLngToScreen(lat, lng) {
-  const x = ((lng + 180) / 360) * SIM_WIDTH;
-  const y = ((90 - lat) / 180) * SIM_HEIGHT;
-  return { x, y };
+  // Convert to radians
+  const latRad = (lat * Math.PI) / 180;
+  const lngRad = (lng * Math.PI) / 180;
+  
+  // Orthographic projection (viewing from front, centered at lng=0)
+  // Adjust longitude to center the Americas (roughly -100°)
+  const centerLng = (-100 * Math.PI) / 180;
+  const adjustedLng = lngRad - centerLng;
+  
+  // Spherical to 2D orthographic
+  const x = Math.cos(latRad) * Math.sin(adjustedLng);
+  const y = Math.sin(latRad);
+  const z = Math.cos(latRad) * Math.cos(adjustedLng); // visibility check
+  
+  // Convert to screen coordinates
+  const screenX = SIM_WIDTH / 2 + x * GLOBE_RADIUS_SIM;
+  const screenY = SIM_HEIGHT / 2 - y * GLOBE_RADIUS_SIM; // flip Y
+  
+  return { x: screenX, y: screenY, visible: z > -0.2 }; // slightly behind is ok
 }
 
 function getCardBounds(starX, starY, anchor) {
@@ -49,6 +70,9 @@ function getTotalOverlap(cardBounds, placedBounds) {
   return total;
 }
 
+/**
+ * Compute anchors using spherical orthographic projection
+ */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
@@ -56,13 +80,16 @@ function computeCardAnchors(cards) {
   const anchors = {};
   const placedBounds = [];
   
+  // Convert all cards to screen positions using spherical projection
   const cardScreenPos = {};
   for (const card of cards) {
     cardScreenPos[card.id] = latLngToScreen(card.lat, card.lng);
   }
   
+  // Sort by latitude (process from north to south)
   const sortedCards = [...cards].sort((a, b) => b.lat - a.lat);
   
+  // First pass: greedy assignment
   for (const card of sortedCards) {
     const starPos = cardScreenPos[card.id];
     let bestAnchor = 'top-left';
@@ -82,24 +109,50 @@ function computeCardAnchors(cards) {
     placedBounds.push(getCardBounds(starPos.x, starPos.y, bestAnchor));
   }
   
-  // Second pass
+  // Second pass: try to improve overlapping cards
   for (const card of sortedCards) {
     const starPos = cardScreenPos[card.id];
     const currentAnchor = anchors[card.id];
     const currentBounds = getCardBounds(starPos.x, starPos.y, currentAnchor);
     
-    const otherBounds = [];
-    for (const other of sortedCards) {
-      if (other.id === card.id) continue;
-      const otherPos = cardScreenPos[other.id];
-      otherBounds.push(getCardBounds(otherPos.x, otherPos.y, anchors[other.id]));
-    }
+    const otherBounds = sortedCards
+      .filter(c => c.id !== card.id)
+      .map(c => getCardBounds(cardScreenPos[c.id].x, cardScreenPos[c.id].y, anchors[c.id]));
     
     const currentOverlap = getTotalOverlap(currentBounds, otherBounds);
     
     if (currentOverlap > 0) {
+      let bestAnchor = currentAnchor;
+      let bestOverlap = currentOverlap;
+      
       for (const anchor of CORNERS) {
         if (anchor === currentAnchor) continue;
+        const newBounds = getCardBounds(starPos.x, starPos.y, anchor);
+        const newOverlap = getTotalOverlap(newBounds, otherBounds);
+        if (newOverlap < bestOverlap) {
+          bestOverlap = newOverlap;
+          bestAnchor = anchor;
+        }
+      }
+      
+      anchors[card.id] = bestAnchor;
+    }
+  }
+  
+  // Third pass: one more iteration for any remaining conflicts
+  for (const card of sortedCards) {
+    const starPos = cardScreenPos[card.id];
+    const currentAnchor = anchors[card.id];
+    
+    const otherBounds = sortedCards
+      .filter(c => c.id !== card.id)
+      .map(c => getCardBounds(cardScreenPos[c.id].x, cardScreenPos[c.id].y, anchors[c.id]));
+    
+    const currentBounds = getCardBounds(starPos.x, starPos.y, currentAnchor);
+    const currentOverlap = getTotalOverlap(currentBounds, otherBounds);
+    
+    if (currentOverlap > 0) {
+      for (const anchor of CORNERS) {
         const newBounds = getCardBounds(starPos.x, starPos.y, anchor);
         const newOverlap = getTotalOverlap(newBounds, otherBounds);
         if (newOverlap < currentOverlap) {
@@ -110,7 +163,7 @@ function computeCardAnchors(cards) {
     }
   }
   
-  console.log('Card anchors (simulation-based):');
+  console.log('Card anchors (spherical projection):');
   for (const card of sortedCards) {
     const pos = cardScreenPos[card.id];
     console.log(`  ${card.name}: "${anchors[card.id]}" at (${pos.x.toFixed(0)}, ${pos.y.toFixed(0)})`);
@@ -222,10 +275,9 @@ function App() {
     setFocusedCard(card.id);
   }, [resetAutoRotateTimer, focusedCard]);
 
-  // CHANGED: Closing a card does NOT clear focus (no zoom out animation)
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
-    // Don't clear focusedCard - this prevents the unfocus/zoom-out animation
+    // Don't clear focus - prevents zoom out animation
   }, []);
 
   const handleFocusCard = useCallback((id) => {
@@ -278,11 +330,6 @@ function App() {
     setFocusedCard(null);
   }, []);
 
-  // Click on backdrop to clear focus
-  const handleBackdropClick = useCallback(() => {
-    setFocusedCard(null);
-  }, []);
-
   if (loading) return <LoadingScreen />;
   if (error) return <div className="error-screen">Error: {error}</div>;
 
@@ -307,14 +354,6 @@ function App() {
           onFocusLost={handleFocusLost}
           visibleCardIds={visibleCardIds}
         />
-
-        {/* Focus backdrop overlay */}
-        {focusedCard && (
-          <div 
-            className="focus-backdrop" 
-            onClick={handleBackdropClick}
-          />
-        )}
 
         {!isEmbedMode && (
           <ControlsPanel
