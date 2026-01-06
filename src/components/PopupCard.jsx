@@ -1,35 +1,75 @@
 import React, { useState, memo } from 'react';
 import { getImageUrl } from '../utils/api';
 
-// Card dimensions
+// Full card dimensions
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
+// Compact mode (image only) dimensions
+const COMPACT_SIZE = 40;
+
+// Scale threshold for compact mode
+const COMPACT_THRESHOLD = 0.55;
+
 /**
  * Anchor corner definitions:
- * - 'top-left': star at top-left corner, card extends RIGHT and DOWN
- * - 'top-right': star at top-right corner, card extends LEFT and DOWN
- * - 'bottom-left': star at bottom-left corner, card extends RIGHT and UP
- * - 'bottom-right': star at bottom-right corner, card extends LEFT and UP
+ * The star position is at the specified corner of the card.
+ * 
+ * - 'top-left': star at card's top-left corner
+ * - 'top-right': star at card's top-right corner
+ * - 'bottom-left': star at card's bottom-left corner
+ * - 'bottom-right': star at card's bottom-right corner
  */
-const ANCHOR_CONFIG = {
-  'top-left': {
-    getPosition: (starX, starY) => ({ x: starX, y: starY }),
-    transformOrigin: 'left top'
-  },
-  'top-right': {
-    getPosition: (starX, starY) => ({ x: starX - CARD_WIDTH, y: starY }),
-    transformOrigin: 'right top'
-  },
-  'bottom-left': {
-    getPosition: (starX, starY) => ({ x: starX, y: starY - CARD_HEIGHT }),
-    transformOrigin: 'left bottom'
-  },
-  'bottom-right': {
-    getPosition: (starX, starY) => ({ x: starX - CARD_WIDTH, y: starY - CARD_HEIGHT }),
-    transformOrigin: 'right bottom'
+function getCardStyle(anchor, starX, starY, isCompact) {
+  const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
+  const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
+  
+  switch (anchor) {
+    case 'top-left':
+      // Star is at top-left corner of card
+      // Card extends right and down from star
+      return {
+        left: starX,
+        top: starY,
+        transformOrigin: 'left top'
+      };
+    
+    case 'top-right':
+      // Star is at top-right corner of card
+      // Card extends left and down from star
+      return {
+        left: starX - width,
+        top: starY,
+        transformOrigin: 'right top'
+      };
+    
+    case 'bottom-left':
+      // Star is at bottom-left corner of card
+      // Card extends right and up from star
+      return {
+        left: starX,
+        top: starY - height,
+        transformOrigin: 'left bottom'
+      };
+    
+    case 'bottom-right':
+      // Star is at bottom-right corner of card
+      // Card extends left and up from star
+      return {
+        left: starX - width,
+        top: starY - height,
+        transformOrigin: 'right bottom'
+      };
+    
+    default:
+      // Fallback to top-left
+      return {
+        left: starX,
+        top: starY,
+        transformOrigin: 'left top'
+      };
   }
-};
+}
 
 const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
@@ -42,36 +82,72 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
 
   const { screenPos, scale, opacity } = data;
   
-  // Get anchor configuration
-  const anchorConfig = ANCHOR_CONFIG[anchor] || ANCHOR_CONFIG['top-left'];
+  // Determine if we should show compact mode (image only)
+  const rawScale = Math.max(0.5, Math.min(0.85, scale));
+  const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused && !isHovered;
   
-  // Reduced scale values
-  const baseScale = 0.65;
-  const minScale = 0.45;
-  const maxScale = 0.8;
+  // Scale calculations
+  const baseScale = isCompact ? 0.9 : 0.65;
+  const minScale = isCompact ? 0.6 : 0.45;
+  const maxScale = isCompact ? 1.0 : 0.8;
   const focusBoost = isFocused ? 1.25 : 1;
-  const hoverBoost = isHovered && !isFocused ? 1.05 : 1;
+  const hoverBoost = isHovered && !isFocused ? 1.1 : 1;
   
-  const clampedRawScale = Math.max(0.5, Math.min(0.85, scale));
-  let finalScale = clampedRawScale * baseScale * focusBoost * hoverBoost;
+  let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  // Calculate position - star is at the anchor corner
-  const { x, y } = anchorConfig.getPosition(screenPos.x, screenPos.y);
+  // Get position and transform origin based on anchor
+  const cardStyle = getCardStyle(anchor, screenPos.x, screenPos.y, isCompact);
   
   // Z-index: hovered > focused > base
   let computedZIndex = zIndex || 1000;
   if (isFocused) computedZIndex = 2000;
   if (isHovered) computedZIndex = 2500;
 
+  // Compact mode - just show circular image
+  if (isCompact) {
+    return (
+      <div 
+        className="popup-card compact"
+        style={{
+          left: cardStyle.left,
+          top: cardStyle.top,
+          width: COMPACT_SIZE,
+          height: COMPACT_SIZE,
+          transform: `scale(${finalScale})`,
+          transformOrigin: cardStyle.transformOrigin,
+          opacity: opacity,
+          zIndex: computedZIndex,
+          pointerEvents: opacity > 0.3 ? 'auto' : 'none',
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus(card.id);
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <img 
+          src={getImageUrl(card.image)} 
+          alt={card.name}
+          className="compact-image"
+          onError={(e) => {
+            e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(card.name)}&background=9333ea&color=fff`;
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Full card mode
   return (
     <div 
       className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''}`}
       style={{
-        left: x,
-        top: y,
+        left: cardStyle.left,
+        top: cardStyle.top,
         transform: `scale(${finalScale})`,
-        transformOrigin: anchorConfig.transformOrigin,
+        transformOrigin: cardStyle.transformOrigin,
         opacity: opacity,
         zIndex: computedZIndex,
         pointerEvents: opacity > 0.3 ? 'auto' : 'none',

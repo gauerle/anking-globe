@@ -1,4 +1,4 @@
-console.log('APP VERSION 11 LOADED');
+console.log('APP VERSION 12 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -18,16 +18,13 @@ function geoDistance(lat1, lng1, lat2, lng2) {
   return Math.sqrt(dLat * dLat + dLng * dLng);
 }
 
-/**
- * Corner definitions and their extension directions
- */
-const CORNERS = ['top-left', 'bottom-left', 'bottom-right', 'top-right'];
+const VALID_CORNERS = ['top-left', 'bottom-left', 'bottom-right', 'top-right'];
 
 const CORNER_EXTENDS = {
-  'top-left': { x: 1, y: 1 },      // extends RIGHT and DOWN
-  'bottom-left': { x: 1, y: -1 },  // extends RIGHT and UP
-  'bottom-right': { x: -1, y: -1 }, // extends LEFT and UP
-  'top-right': { x: -1, y: 1 }     // extends LEFT and DOWN
+  'top-left': { x: 1, y: 1 },
+  'bottom-left': { x: 1, y: -1 },
+  'bottom-right': { x: -1, y: -1 },
+  'top-right': { x: -1, y: 1 }
 };
 
 const OPPOSITE_CORNER = {
@@ -37,35 +34,38 @@ const OPPOSITE_CORNER = {
   'top-right': 'bottom-left'
 };
 
-/**
- * Check if two cards with given anchors would likely overlap
- */
-function wouldOverlap(card1, anchor1, card2, anchor2, threshold = 12) {
-  const dist = geoDistance(card1.lat, card1.lng, card2.lat, card2.lng);
-  if (dist > threshold) return false; // Too far apart
-  
-  const ext1 = CORNER_EXTENDS[anchor1];
-  const ext2 = CORNER_EXTENDS[anchor2];
-  
-  // Calculate approximate card center positions relative to stars
-  const center1x = card1.lng + ext1.x * 5;
-  const center1y = card1.lat - ext1.y * 2;
-  const center2x = card2.lng + ext2.x * 5;
-  const center2y = card2.lat - ext2.y * 2;
-  
-  // Check if card centers are close (likely overlapping)
-  const centerDist = geoDistance(center1y, center1x, center2y, center2x);
-  return centerDist < 8;
-}
-
-/**
- * Get best corner that extends away from a neighbor direction
- */
 function getCornerAwayFrom(neighborIsNorth, neighborIsEast) {
   if (neighborIsNorth && neighborIsEast) return 'top-right';
   if (neighborIsNorth && !neighborIsEast) return 'top-left';
   if (!neighborIsNorth && neighborIsEast) return 'bottom-right';
   return 'bottom-left';
+}
+
+function getDefaultCorner(card) {
+  const inWest = card.lng < 0;
+  const inNorth = card.lat > 0;
+  if (inWest && inNorth) return 'top-left';
+  if (!inWest && inNorth) return 'top-right';
+  if (inWest && !inNorth) return 'bottom-left';
+  return 'bottom-right';
+}
+
+function wouldOverlap(card1, anchor1, card2, anchor2, threshold = 12) {
+  const dist = geoDistance(card1.lat, card1.lng, card2.lat, card2.lng);
+  if (dist > threshold) return false;
+  
+  const ext1 = CORNER_EXTENDS[anchor1];
+  const ext2 = CORNER_EXTENDS[anchor2];
+  
+  if (!ext1 || !ext2) return false;
+  
+  const center1x = card1.lng + ext1.x * 5;
+  const center1y = card1.lat - ext1.y * 2;
+  const center2x = card2.lng + ext2.x * 5;
+  const center2y = card2.lat - ext2.y * 2;
+  
+  const centerDist = geoDistance(center1y, center1x, center2y, center2x);
+  return centerDist < 8;
 }
 
 /**
@@ -80,9 +80,12 @@ function computeCardAnchors(cards) {
   // Build neighbor map
   const neighbors = {};
   for (const card of cards) {
+    if (!card || !card.id) continue;
+    
     neighbors[card.id] = [];
     for (const other of cards) {
-      if (other.id === card.id) continue;
+      if (!other || !other.id || other.id === card.id) continue;
+      
       const dist = geoDistance(card.lat, card.lng, other.lat, other.lng);
       if (dist < NEIGHBOR_THRESHOLD) {
         neighbors[card.id].push({
@@ -96,47 +99,50 @@ function computeCardAnchors(cards) {
     neighbors[card.id].sort((a, b) => a.dist - b.dist);
   }
   
-  // ============ PASS 1: Initial assignment based on closest neighbor ============
+  // PASS 1: Initial assignment
   for (const card of cards) {
-    const cardNeighbors = neighbors[card.id];
+    if (!card || !card.id) continue;
+    
+    const cardNeighbors = neighbors[card.id] || [];
     
     if (cardNeighbors.length === 0) {
-      // No neighbors - use hemisphere default
-      const inWest = card.lng < 0;
-      const inNorth = card.lat > 0;
-      if (inWest && inNorth) anchors[card.id] = 'top-left';
-      else if (!inWest && inNorth) anchors[card.id] = 'top-right';
-      else if (inWest && !inNorth) anchors[card.id] = 'bottom-left';
-      else anchors[card.id] = 'bottom-right';
+      anchors[card.id] = getDefaultCorner(card);
     } else {
-      // Extend away from closest neighbor
       const closest = cardNeighbors[0];
       anchors[card.id] = getCornerAwayFrom(closest.isNorth, closest.isEast);
     }
+    
+    // Validate
+    if (!VALID_CORNERS.includes(anchors[card.id])) {
+      console.warn(`Invalid anchor for ${card.name}, using default`);
+      anchors[card.id] = getDefaultCorner(card);
+    }
   }
   
-  // ============ PASS 2: Resolve direct conflicts (same anchor for close neighbors) ============
+  // PASS 2: Resolve direct conflicts
   for (const card of cards) {
-    const cardNeighbors = neighbors[card.id];
+    if (!card || !card.id) continue;
+    
+    const cardNeighbors = neighbors[card.id] || [];
     
     for (const neighbor of cardNeighbors) {
       if (anchors[card.id] === anchors[neighbor.card.id]) {
-        // Same anchor - flip the one that's further south/east to opposite
         if (card.lat < neighbor.card.lat || 
             (card.lat === neighbor.card.lat && card.lng > neighbor.card.lng)) {
           anchors[card.id] = OPPOSITE_CORNER[anchors[card.id]];
         }
-        break; // Only fix first conflict
+        break;
       }
     }
   }
   
-  // ============ PASS 3: Check for remaining overlaps and try all corners ============
+  // PASS 3: Check remaining overlaps
   for (const card of cards) {
-    const cardNeighbors = neighbors[card.id];
+    if (!card || !card.id) continue;
+    
+    const cardNeighbors = neighbors[card.id] || [];
     if (cardNeighbors.length === 0) continue;
     
-    // Check if current anchor causes overlap with any neighbor
     let hasOverlap = false;
     for (const neighbor of cardNeighbors) {
       if (wouldOverlap(card, anchors[card.id], neighbor.card, anchors[neighbor.card.id])) {
@@ -146,11 +152,10 @@ function computeCardAnchors(cards) {
     }
     
     if (hasOverlap) {
-      // Try all corners and pick one with least overlap
       let bestCorner = anchors[card.id];
       let bestOverlapCount = Infinity;
       
-      for (const corner of CORNERS) {
+      for (const corner of VALID_CORNERS) {
         let overlapCount = 0;
         for (const neighbor of cardNeighbors) {
           if (wouldOverlap(card, corner, neighbor.card, anchors[neighbor.card.id])) {
@@ -167,12 +172,21 @@ function computeCardAnchors(cards) {
     }
   }
   
+  // Final validation pass
+  for (const card of cards) {
+    if (!card || !card.id) continue;
+    if (!VALID_CORNERS.includes(anchors[card.id])) {
+      anchors[card.id] = 'top-left';
+    }
+  }
+  
   // Log results
   console.log('Card anchors (3-pass):');
   for (const card of cards) {
-    const n = neighbors[card.id];
+    if (!card) continue;
+    const n = neighbors[card.id] || [];
     const closestName = n.length > 0 ? n[0].card.name : 'none';
-    console.log(`  ${card.name}: ${anchors[card.id]} (closest: ${closestName})`);
+    console.log(`  ${card.name}: "${anchors[card.id]}" (closest: ${closestName})`);
   }
   
   return anchors;
@@ -325,7 +339,6 @@ function App() {
     resetAutoRotateTimer();
   }, [embedShowAll, cards, resetAutoRotateTimer]);
 
-  // Simple callback - no extra processing
   const handleMarkerVisibilityChange = useCallback((data) => {
     setMarkerVisibility(data);
   }, []);
