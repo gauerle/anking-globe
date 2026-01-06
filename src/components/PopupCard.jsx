@@ -8,8 +8,9 @@ const CARD_HEIGHT = 58;
 // Compact mode - just the square image
 const COMPACT_SIZE = 56;
 
-// Scale threshold for compact mode (lower = need to zoom out more to trigger)
-const COMPACT_THRESHOLD = 0.52;
+// Scale threshold for compact mode
+// Higher value = triggers at closer zoom (sooner when zooming out)
+const COMPACT_THRESHOLD = 0.70;
 
 /**
  * Calculate card position based on anchor.
