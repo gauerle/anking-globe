@@ -6,7 +6,7 @@ const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
 // Much higher threshold - cards become photos very quickly when zooming out
-const COMPACT_THRESHOLD = 0.85;
+const COMPACT_THRESHOLD = 0.83;
 
 function calculatePosition(anchor, starX, starY, isCompact) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
