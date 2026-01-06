@@ -1,4 +1,4 @@
-console.log('APP VERSION 32 LOADED - 3D CARDS');
+console.log('APP VERSION 34 LOADED - 3D CARDS');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -96,40 +96,30 @@ function App() {
     });
   }, [cards, focusedCard]);
 
-  const handleMarkerClick = useCallback((clickedCards) => {
-    const cardsArray = Array.isArray(clickedCards) ? clickedCards : [clickedCards];
-    
+  const handleMarkerClick = useCallback((card) => {
     resetAutoRotateTimer();
     
-    const allSelected = cardsArray.every(c => selectedCards.includes(c.id));
-    
-    if (allSelected) {
-      setSelectedCards(prev => prev.filter(id => !cardsArray.some(c => c.id === id)));
-      if (cardsArray.some(c => c.id === focusedCard)) {
-        setFocusedCard(null);
+    // Toggle selection
+    setSelectedCards(prev => {
+      if (prev.includes(card.id)) {
+        // Deselect
+        if (focusedCard === card.id) setFocusedCard(null);
+        return prev.filter(id => id !== card.id);
+      } else {
+        // Select
+        setFocusedCard(card.id);
+        return [...prev, card.id];
       }
-    } else {
-      setSelectedCards(prev => {
-        const newSelected = [...prev];
-        for (const card of cardsArray) {
-          if (!newSelected.includes(card.id)) {
-            newSelected.push(card.id);
-          }
-        }
-        return newSelected;
-      });
-      const firstNew = cardsArray.find(c => !selectedCards.includes(c.id));
-      if (firstNew) {
-        setFocusedCard(firstNew.id);
-      }
-    }
-  }, [resetAutoRotateTimer, focusedCard, selectedCards]);
+    });
+  }, [resetAutoRotateTimer, focusedCard]);
 
+  // Called from 3D card close button
   const handleCloseCard = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
     if (focusedCard === cardId) setFocusedCard(null);
   }, [focusedCard]);
 
+  // Called from 3D card click (not close button)
   const handleFocusCard = useCallback((id) => {
     setFocusedCard(prev => prev === id ? null : id);
   }, []);
@@ -222,6 +212,8 @@ function App() {
             isEmbedMode={isEmbedMode}
           />
         )}
+
+        {/* 3D Cards are now rendered inside Globe.jsx */}
 
         <div className={`globe-logo-container ${isEmbedMode ? 'embed' : ''}`}>
           <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="globe-logo" />
