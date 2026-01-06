@@ -5,8 +5,8 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
-// Higher threshold - cards collapse very soon when zooming out
-const COMPACT_THRESHOLD = 0.85;
+// Much higher threshold - cards become photos very quickly when zooming out
+const COMPACT_THRESHOLD = 0.92;
 
 function calculatePosition(anchor, starX, starY, isCompact) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -27,9 +27,11 @@ function calculatePosition(anchor, starX, starY, isCompact) {
 }
 
 /**
- * Marquee text component - scrolls only on hover if text overflows
+ * Marquee text component - scrolls if text overflows
+ * isActive: true when card is selected/open (marquee starts automatically)
+ * isHovered: true when mouse is over card (also triggers marquee)
  */
-function MarqueeText({ text, className, isHovered }) {
+function MarqueeText({ text, className, isActive }) {
   const containerRef = useRef(null);
   const textRef = useRef(null);
   const [needsMarquee, setNeedsMarquee] = useState(false);
@@ -42,7 +44,8 @@ function MarqueeText({ text, className, isHovered }) {
     }
   }, [text]);
   
-  const shouldScroll = needsMarquee && isHovered;
+  // Marquee scrolls when card is active (selected) and text overflows
+  const shouldScroll = needsMarquee && isActive;
   
   return (
     <div ref={containerRef} className={`marquee-container ${className || ''}`}>
@@ -70,12 +73,15 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   const { screenPos, scale, opacity } = data;
   
   const rawScale = Math.max(0.5, Math.min(0.85, scale));
-  const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused && !isHovered;
+  
+  // FIXED: Compact mode only depends on scale and focus, NOT hover
+  // This prevents flickering when hovering over compact cards
+  const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused;
   
   const baseScale = isCompact ? 0.85 : 0.75;
   const minScale = isCompact ? 0.55 : 0.5;
   const maxScale = isCompact ? 1.0 : 0.95;
-  const focusBoost = isFocused ? 1.3 : 1;  // Increased to 1.3
+  const focusBoost = isFocused ? 1.3 : 1;
   const hoverBoost = isHovered && !isFocused ? 1.15 : 1;
   
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
@@ -91,6 +97,10 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   
   // Build info text
   const infoText = [card.title, card.university].filter(Boolean).join(' · ');
+  
+  // Marquee is active when card is selected (always true here since component renders)
+  // or when hovered
+  const marqueeActive = true; // Card is always "active" when rendered (it's selected)
 
   return (
     <div 
@@ -126,12 +136,12 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
         
         <div className="card-content">
           <p className="card-name">{card.name}</p>
-          <MarqueeText text={infoText} className="card-info" isHovered={isHovered} />
+          <MarqueeText text={infoText} className="card-info" isActive={marqueeActive} />
           <div className="card-location">
             <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
             </svg>
-            <MarqueeText text={card.location} className="card-location-text" isHovered={isHovered} />
+            <MarqueeText text={card.location} className="card-location-text" isActive={marqueeActive} />
           </div>
         </div>
         
