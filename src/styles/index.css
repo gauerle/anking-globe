@@ -143,7 +143,6 @@ body {
   pointer-events: auto;
   will-change: transform, opacity, width, height;
   cursor: pointer;
-  /* Smooth transition for width/height collapse */
   transition: 
     transform 0.2s ease-out, 
     opacity 0.15s ease-out,
@@ -196,7 +195,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 6px 10px;
+  padding: 6px 12px;
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -208,23 +207,21 @@ body {
 .card-name {
   font-family: 'Reddit Sans', sans-serif;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
   color: #111629;
   margin: 0;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* NO ellipsis - full text shown */
 }
 
 .card-info {
   font-family: 'Sora', sans-serif;
-  font-size: 10px;
+  font-size: 11px;
   color: #6b7280;
   margin: 0;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   line-height: 1.4;
+  /* NO ellipsis - full text shown */
 }
 
 .card-location {
@@ -232,9 +229,11 @@ body {
   align-items: center;
   gap: 3px;
   font-family: 'Sora', sans-serif;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--accent-purple);
   margin-top: 2px;
+  white-space: nowrap;
+  /* NO ellipsis - full text shown */
 }
 
 .card-location svg {
@@ -243,15 +242,14 @@ body {
 
 .card-location span {
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* NO ellipsis - full text shown */
 }
 
 .card-close-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  width: 24px;
   flex-shrink: 0;
   background: #f9fafb;
   border: none;
@@ -292,7 +290,6 @@ body {
   border-left: none;
 }
 
-/* Hover effect on compact mode */
 .popup-card.compact:hover .popup-card-inner {
   border-color: var(--accent-purple);
   box-shadow: 0 4px 12px rgba(147, 51, 234, 0.25);

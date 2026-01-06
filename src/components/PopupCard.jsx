@@ -1,15 +1,14 @@
 import React, { useState, memo } from 'react';
 import { getImageUrl } from '../utils/api';
 
-// Full card dimensions
-const CARD_WIDTH = 220;
+// Wider cards to show full text
+const CARD_WIDTH = 320;
 const CARD_HEIGHT = 58;
 
 // Compact mode - just the square image
 const COMPACT_SIZE = 56;
 
 // Scale threshold for compact mode
-// Higher value = triggers at closer zoom (sooner when zooming out)
 const COMPACT_THRESHOLD = 0.70;
 
 /**
@@ -51,9 +50,9 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused && !isHovered;
   
   // Scale calculations
-  const baseScale = isCompact ? 0.85 : 0.75;
-  const minScale = isCompact ? 0.55 : 0.5;
-  const maxScale = isCompact ? 1.0 : 0.9;
+  const baseScale = isCompact ? 0.85 : 0.70;  // Slightly smaller base for wider cards
+  const minScale = isCompact ? 0.55 : 0.45;
+  const maxScale = isCompact ? 1.0 : 0.85;
   const focusBoost = isFocused ? 1.2 : 1;
   const hoverBoost = isHovered ? 1.15 : 1;
   

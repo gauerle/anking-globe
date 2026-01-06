@@ -1,4 +1,4 @@
-console.log('APP VERSION 19 LOADED');
+console.log('APP VERSION 20 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -9,29 +9,13 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 import { useGroups } from './hooks/useGroups';
 
-const CARD_WIDTH = 220;
+// Wider cards to fit full text
+const CARD_WIDTH = 320;
 const CARD_HEIGHT = 58;
+const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
 /**
- * Anchor definitions - which direction does the card extend FROM the star?
- * 
- * 'top-left': star at top-left → card extends RIGHT and DOWN (to SE)
- * 'top-right': star at top-right → card extends LEFT and DOWN (to SW)
- * 'bottom-left': star at bottom-left → card extends RIGHT and UP (to NE)
- * 'bottom-right': star at bottom-right → card extends LEFT and UP (to NW)
- */
-const ANCHOR_EXTENDS = {
-  'top-left': { x: 1, y: 1 },      // card body is SE of star
-  'top-right': { x: -1, y: 1 },    // card body is SW of star
-  'bottom-left': { x: 1, y: -1 },  // card body is NE of star
-  'bottom-right': { x: -1, y: -1 } // card body is NW of star
-};
-
-/**
- * Get the anchor that extends the card AWAY from a given direction
- * 
- * @param awayX - positive means card should extend to the RIGHT
- * @param awayY - positive means card should extend DOWN
+ * Get the anchor that extends the card in a given direction
  */
 function getAnchorExtendingToward(awayX, awayY) {
   if (awayX >= 0 && awayY >= 0) return 'top-left';      // extend SE
@@ -41,9 +25,67 @@ function getAnchorExtendingToward(awayX, awayY) {
 }
 
 /**
- * Find clusters of nearby cards based on lat/lng proximity
+ * Calculate card bounds given star position and anchor
  */
-function findClusters(cards, threshold = 12) {
+function getCardBounds(lat, lng, anchor) {
+  // Use lat/lng directly as pseudo-screen coordinates for overlap detection
+  // Scale to approximate screen proportions
+  const starX = (lng + 180) * 4;  // 0 to 1440
+  const starY = (90 - lat) * 4;   // 0 to 720
+  
+  let left, top;
+  switch (anchor) {
+    case 'top-left': left = starX; top = starY; break;
+    case 'top-right': left = starX - CARD_WIDTH; top = starY; break;
+    case 'bottom-left': left = starX; top = starY - CARD_HEIGHT; break;
+    case 'bottom-right': left = starX - CARD_WIDTH; top = starY - CARD_HEIGHT; break;
+    default: left = starX; top = starY;
+  }
+  return { left, top, right: left + CARD_WIDTH, bottom: top + CARD_HEIGHT };
+}
+
+/**
+ * Calculate overlap area between two boxes
+ */
+function getOverlapArea(box1, box2) {
+  const xOverlap = Math.max(0, Math.min(box1.right, box2.right) - Math.max(box1.left, box2.left));
+  const yOverlap = Math.max(0, Math.min(box1.bottom, box2.bottom) - Math.max(box1.top, box2.top));
+  return xOverlap * yOverlap;
+}
+
+/**
+ * Calculate total pairwise overlap for all cards
+ */
+function calculateTotalOverlap(cards, anchors) {
+  let total = 0;
+  for (let i = 0; i < cards.length; i++) {
+    for (let j = i + 1; j < cards.length; j++) {
+      const bounds1 = getCardBounds(cards[i].lat, cards[i].lng, anchors[cards[i].id]);
+      const bounds2 = getCardBounds(cards[j].lat, cards[j].lng, anchors[cards[j].id]);
+      total += getOverlapArea(bounds1, bounds2);
+    }
+  }
+  return total;
+}
+
+/**
+ * Calculate overlap for a single card against all others
+ */
+function calculateCardOverlap(card, cards, anchors) {
+  let total = 0;
+  const bounds1 = getCardBounds(card.lat, card.lng, anchors[card.id]);
+  for (const other of cards) {
+    if (other.id === card.id) continue;
+    const bounds2 = getCardBounds(other.lat, other.lng, anchors[other.id]);
+    total += getOverlapArea(bounds1, bounds2);
+  }
+  return total;
+}
+
+/**
+ * Find clusters of nearby cards
+ */
+function findClusters(cards, threshold = 15) {
   const clusters = [];
   const assigned = new Set();
   
@@ -60,99 +102,188 @@ function findClusters(cards, threshold = 12) {
       
       for (const other of cards) {
         if (assigned.has(other.id)) continue;
-        
         const dist = Math.sqrt(
           Math.pow(current.lat - other.lat, 2) + 
           Math.pow(current.lng - other.lng, 2)
         );
-        
         if (dist < threshold) {
           assigned.add(other.id);
           queue.push(other);
         }
       }
     }
-    
     clusters.push(cluster);
   }
-  
   return clusters;
 }
 
 /**
- * For a cluster, assign anchors so cards spread OUTWARD from centroid
+ * ROUND 1: Initial assignment based on spread from centroid
  */
-function assignClusterAnchors(cluster) {
+function initialAssignment(cards) {
   const anchors = {};
+  const clusters = findClusters(cards, 18);
   
-  if (cluster.length === 1) {
-    // Single card - use position-based default
-    const card = cluster[0];
-    // Western hemisphere cards extend right, eastern extend left
-    // Northern hemisphere cards extend down, southern extend up
-    const extendRight = card.lng < -30;
-    const extendDown = card.lat > 20;
-    anchors[card.id] = getAnchorExtendingToward(
-      extendRight ? 1 : -1,
-      extendDown ? 1 : -1
-    );
-    return anchors;
-  }
-  
-  // Calculate cluster centroid
-  let centroidLat = 0, centroidLng = 0;
-  for (const card of cluster) {
-    centroidLat += card.lat;
-    centroidLng += card.lng;
-  }
-  centroidLat /= cluster.length;
-  centroidLng /= cluster.length;
-  
-  // Each card extends AWAY from centroid
-  for (const card of cluster) {
-    // Direction from centroid to card
-    const dx = card.lng - centroidLng;
-    const dy = card.lat - centroidLat;  // Note: lat increases northward
+  for (const cluster of clusters) {
+    if (cluster.length === 1) {
+      const card = cluster[0];
+      const extendRight = card.lng < -30;
+      const extendDown = card.lat > 20;
+      anchors[card.id] = getAnchorExtendingToward(
+        extendRight ? 1 : -1,
+        extendDown ? 1 : -1
+      );
+      continue;
+    }
     
-    // Card should extend in the same direction (away from centroid)
-    // But we need to account for screen coordinates where Y is flipped
-    // On screen: positive Y is DOWN, but positive lat is NORTH (up)
-    anchors[card.id] = getAnchorExtendingToward(
-      dx >= 0 ? 1 : -1,   // if card is east of centroid, extend right
-      dy >= 0 ? -1 : 1    // if card is north of centroid, extend up (negative screen Y)
-    );
+    // Calculate centroid
+    let centroidLat = 0, centroidLng = 0;
+    for (const card of cluster) {
+      centroidLat += card.lat;
+      centroidLng += card.lng;
+    }
+    centroidLat /= cluster.length;
+    centroidLng /= cluster.length;
+    
+    // Each card extends away from centroid
+    for (const card of cluster) {
+      const dx = card.lng - centroidLng;
+      const dy = card.lat - centroidLat;
+      anchors[card.id] = getAnchorExtendingToward(
+        dx >= 0 ? 1 : -1,
+        dy >= 0 ? -1 : 1
+      );
+    }
   }
   
   return anchors;
 }
 
 /**
- * Compute optimal anchors using cluster spread algorithm
+ * ROUND 2+: Iterative improvement - for each card with overlap, try other anchors
+ */
+function improveAnchors(cards, anchors, maxIterations = 5) {
+  let improved = true;
+  let iteration = 0;
+  
+  while (improved && iteration < maxIterations) {
+    improved = false;
+    iteration++;
+    
+    // Sort cards by their current overlap (worst first)
+    const cardsByOverlap = [...cards].sort((a, b) => {
+      return calculateCardOverlap(b, cards, anchors) - calculateCardOverlap(a, cards, anchors);
+    });
+    
+    for (const card of cardsByOverlap) {
+      const currentOverlap = calculateCardOverlap(card, cards, anchors);
+      if (currentOverlap === 0) continue;
+      
+      const currentAnchor = anchors[card.id];
+      let bestAnchor = currentAnchor;
+      let bestOverlap = currentOverlap;
+      
+      // Try all other anchors
+      for (const anchor of CORNERS) {
+        if (anchor === currentAnchor) continue;
+        
+        anchors[card.id] = anchor;
+        const newOverlap = calculateCardOverlap(card, cards, anchors);
+        
+        if (newOverlap < bestOverlap) {
+          bestOverlap = newOverlap;
+          bestAnchor = anchor;
+          improved = true;
+        }
+      }
+      
+      anchors[card.id] = bestAnchor;
+    }
+  }
+  
+  return { anchors, iterations: iteration };
+}
+
+/**
+ * ROUND 3: Pairwise swap optimization
+ */
+function pairwiseOptimization(cards, anchors) {
+  let improved = true;
+  let swaps = 0;
+  
+  while (improved) {
+    improved = false;
+    
+    for (let i = 0; i < cards.length; i++) {
+      for (let j = i + 1; j < cards.length; j++) {
+        const card1 = cards[i];
+        const card2 = cards[j];
+        
+        // Current overlap between these two
+        const bounds1 = getCardBounds(card1.lat, card1.lng, anchors[card1.id]);
+        const bounds2 = getCardBounds(card2.lat, card2.lng, anchors[card2.id]);
+        const currentPairOverlap = getOverlapArea(bounds1, bounds2);
+        
+        if (currentPairOverlap === 0) continue;
+        
+        // Try swapping their anchors
+        const anchor1 = anchors[card1.id];
+        const anchor2 = anchors[card2.id];
+        
+        anchors[card1.id] = anchor2;
+        anchors[card2.id] = anchor1;
+        
+        const newBounds1 = getCardBounds(card1.lat, card1.lng, anchors[card1.id]);
+        const newBounds2 = getCardBounds(card2.lat, card2.lng, anchors[card2.id]);
+        const newPairOverlap = getOverlapArea(newBounds1, newBounds2);
+        
+        // Also check total overlap didn't get worse
+        const oldTotal = calculateTotalOverlap(cards, { ...anchors, [card1.id]: anchor1, [card2.id]: anchor2 });
+        const newTotal = calculateTotalOverlap(cards, anchors);
+        
+        if (newPairOverlap < currentPairOverlap && newTotal <= oldTotal) {
+          improved = true;
+          swaps++;
+        } else {
+          // Revert
+          anchors[card1.id] = anchor1;
+          anchors[card2.id] = anchor2;
+        }
+      }
+    }
+  }
+  
+  return { anchors, swaps };
+}
+
+/**
+ * Main anchor computation with multiple rounds
  */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
-  // Find clusters
-  const clusters = findClusters(cards, 15);
+  console.log('=== Computing card anchors (multi-round) ===');
   
-  // Assign anchors to each cluster
-  const anchors = {};
+  // Round 1: Initial spread-from-centroid assignment
+  let anchors = initialAssignment(cards);
+  let overlap1 = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 1 (initial): total overlap = ${overlap1.toFixed(0)}`);
   
-  for (const cluster of clusters) {
-    const clusterAnchors = assignClusterAnchors(cluster);
-    Object.assign(anchors, clusterAnchors);
-  }
+  // Round 2: Iterative single-card improvement
+  const { iterations } = improveAnchors(cards, anchors, 10);
+  let overlap2 = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 2 (${iterations} iterations): total overlap = ${overlap2.toFixed(0)}`);
   
-  // Log results
-  console.log('Card anchors (spread-from-centroid):');
-  console.log(`  Found ${clusters.length} clusters`);
-  for (const cluster of clusters) {
-    if (cluster.length > 1) {
-      console.log(`  Cluster of ${cluster.length}: ${cluster.map(c => c.name).join(', ')}`);
-    }
-  }
+  // Round 3: Pairwise swap optimization
+  const { swaps } = pairwiseOptimization(cards, anchors);
+  let overlap3 = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 3 (${swaps} swaps): total overlap = ${overlap3.toFixed(0)}`);
+  
+  // Log final assignments
+  console.log('Final anchors:');
   for (const card of cards) {
-    console.log(`  ${card.name}: "${anchors[card.id]}" at (${card.lat.toFixed(1)}, ${card.lng.toFixed(1)})`);
+    const cardOverlap = calculateCardOverlap(card, cards, anchors);
+    console.log(`  ${card.name}: "${anchors[card.id]}"${cardOverlap > 0 ? ` (overlap: ${cardOverlap.toFixed(0)})` : ''}`);
   }
   
   return anchors;
