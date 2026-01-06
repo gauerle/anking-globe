@@ -5,7 +5,7 @@ import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
 
 const GLOBE_RADIUS = 100;
 const LAND_ELEVATION = 3.0;
-const MARKER_SIZE = 3.5;
+const MARKER_SIZE = 2.8;
 const MARKER_OFFSET = 0.3;
 const RAY_LENGTH = 8;
 const SKYBOX_RADIUS = 1500;
@@ -773,6 +773,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       const h = container.clientHeight;
       
       // UPDATED: Loop now handles card groups
+      // UPDATED: Loop now handles card groups
       for (let i = 0; i < markers.length; i++) {
         const marker = markers[i];
         const cardGroup = marker.userData.cards;
@@ -815,28 +816,25 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         }
         
         const avgRayOpacity = cardGroup.reduce((sum, c) => sum + (rayOpacityRef.current[c.id] ?? 1), 0) / cardGroup.length;
-        const isFocused = cardGroup.some(c => focusCardIdRef.current === c.id);
         
-        let starContainer = null;
-        for (const child of marker.children) {
-          if (child.userData?.type === 'starContainer') starContainer = child;
-        }
-
-        // Find beam to sync rotation
-        let beam = null;
-        for (const child of marker.children) {
-          if (child.userData?.type === 'beam') beam = child;
+        const starContainer = marker.userData.starContainer;
+        const beam = marker.userData.beam;
+        const baseRotation = marker.userData.baseRotation || 0;
+        
+        // Track current rotation offset for smooth transitions
+        if (marker.userData.currentRotationOffset === undefined) {
+          marker.userData.currentRotationOffset = 0;
         }
 
         if (isSelected) {
           marker.scale.setScalar(0.7 * scale);
           
-          if (starContainer) {
-            const base = starContainer.userData.baseRotation || 0;
-            starContainer.rotation.z = base + rotationSpeed;
-            // Sync beam rotation with star
-            if (beam) beam.rotation.z = base + rotationSpeed;
-          }
+          // Spin: increase rotation offset while selected
+          marker.userData.currentRotationOffset += 0.02;
+          
+          const currentRotation = baseRotation + marker.userData.currentRotationOffset;
+          if (starContainer) starContainer.rotation.z = currentRotation;
+          if (beam) beam.rotation.z = currentRotation;
           
           marker.traverse((child) => {
             if (child.userData?.type === 'star') {
@@ -851,12 +849,24 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         } else {
           marker.scale.setScalar(scale);
           
-          // Reset BOTH star container and beam to base rotation when not selected
-          if (starContainer) {
-            const base = starContainer.userData.baseRotation || 0;
-            starContainer.rotation.z = base;
-            if (beam) beam.rotation.z = base;
+          // Smoothly return rotation offset to 0 (or nearest full rotation)
+          if (marker.userData.currentRotationOffset !== 0) {
+            // Normalize to nearest full rotation (2π) to avoid spinning backwards
+            const fullRotations = Math.round(marker.userData.currentRotationOffset / (Math.PI * 2));
+            const targetOffset = fullRotations * Math.PI * 2;
+            
+            // Lerp toward target
+            const diff = targetOffset - marker.userData.currentRotationOffset;
+            if (Math.abs(diff) < 0.01) {
+              marker.userData.currentRotationOffset = 0; // Reset completely
+            } else {
+              marker.userData.currentRotationOffset += diff * 0.1;
+            }
           }
+          
+          const currentRotation = baseRotation + marker.userData.currentRotationOffset;
+          if (starContainer) starContainer.rotation.z = currentRotation;
+          if (beam) beam.rotation.z = currentRotation;
           
           marker.traverse((child) => {
             if (child.userData?.type === 'star') {
@@ -874,16 +884,14 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const screenX = (screenVec.x * 0.5 + 0.5) * w;
         const screenY = (-screenVec.y * 0.5 + 0.5) * h;
         
-        // Calculate raw distance for proper world-attached scaling
         const distance = camPos.distanceTo(marker.position);
         
-        // Generate visibility data for ALL cards in group (same screen position)
         for (const card of cardGroup) {
           visibilityData[card.id] = {
             visible: marker.visible,
             screenPos: { x: screenX, y: screenY },
             scale,
-            distance, // Pass raw distance for world-attached scaling
+            distance,
             opacity: newOpacity
           };
         }

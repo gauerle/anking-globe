@@ -8,85 +8,88 @@ const COMPACT_SIZE = 56;
 const MIN_DISTANCE = 150;
 const MAX_DISTANCE = 600;
 const COMPACT_DISTANCE = 350;
-
-// Stagger delay between cards (ms)
 const STAGGER_DELAY = 80;
-
-function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 0 }) {
-  const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
-  const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
-  
-  let left, top, originX, originY;
-  
-  switch (anchor) {
-    case 'top-left':
-      left = starX;
-      top = starY;
-      originX = 'left';
-      originY = 'top';
-      break;
-    case 'top-right':
-      left = starX - width;
-      top = starY;
-      originX = 'right';
-      originY = 'top';
-      break;
-    case 'bottom-left':
-      left = starX;
-      top = starY - height;
-      originX = 'left';
-      originY = 'bottom';
-      break;
-    case 'bottom-right':
-      left = starX - width;
-      top = starY - height;
-      originX = 'right';
-      originY = 'bottom';
-      break;
-    default:
-      left = starX;
-      top = starY;
-      originX = 'left';
-      originY = 'top';
-  }
-  
-  left += offset.x;
-  top += offset.y;
-  
-  return { left, top, originX, originY };
-}
 
 const PopupCard = memo(function PopupCard({ 
   card, 
   visibilityData, 
-  anchor, 
-  offset, 
+  position,
+  anchor,
   onClose, 
   onFocus, 
   isFocused, 
   zIndex,
   staggerIndex = 0,
-  totalInGroup = 1
+  totalInGroup = 1,
+  worldScale = 1,
+  collisionScale = 1
 }) {
   const [isHovered, setIsHovered] = useState(false);
-  const [animationState, setAnimationState] = useState('waiting'); // 'waiting', 'entering', 'visible', 'exiting'
+  const [animationState, setAnimationState] = useState('waiting');
   const [isClosing, setIsClosing] = useState(false);
-  const animationRef = useRef(null);
+  
+  // Smooth position tracking
+  const [smoothPosition, setSmoothPosition] = useState(null);
+  const animationFrameRef = useRef(null);
   const staggerTimeoutRef = useRef(null);
   
   const data = visibilityData?.[card.id];
   
-  // Handle staggered enter animation
+  // Smooth position updates
+  useEffect(() => {
+    if (!position || !data?.visible) return;
+    
+    const targetX = position.x;
+    const targetY = position.y;
+    
+    if (!smoothPosition) {
+      // Initial position (from star center for animation)
+      setSmoothPosition({ x: position.starX, y: position.starY });
+    }
+    
+    const animate = () => {
+      setSmoothPosition(prev => {
+        if (!prev) return { x: targetX, y: targetY };
+        
+        const dx = targetX - prev.x;
+        const dy = targetY - prev.y;
+        
+        // Lerp factor - higher = faster
+        const lerp = 0.15;
+        
+        // If close enough, snap to target
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+          return { x: targetX, y: targetY };
+        }
+        
+        return {
+          x: prev.x + dx * lerp,
+          y: prev.y + dy * lerp
+        };
+      });
+      
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+    
+    animationFrameRef.current = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [position, data?.visible]);
+  
+  // Staggered enter animation
   useEffect(() => {
     if (data?.visible && animationState === 'waiting') {
-      // Delay based on stagger index
       const delay = staggerIndex * STAGGER_DELAY;
       
       staggerTimeoutRef.current = setTimeout(() => {
         setAnimationState('entering');
         
-        animationRef.current = requestAnimationFrame(() => {
-          animationRef.current = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
             setAnimationState('visible');
           });
         });
@@ -94,20 +97,15 @@ const PopupCard = memo(function PopupCard({
     }
     
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
       if (staggerTimeoutRef.current) {
         clearTimeout(staggerTimeoutRef.current);
       }
     };
   }, [data?.visible, staggerIndex, animationState]);
   
-  // Handle close with staggered animation (reverse order)
   const handleClose = (e) => {
     e.stopPropagation();
     
-    // Calculate reverse stagger delay (last card closes first visually)
     const reverseIndex = totalInGroup - 1 - staggerIndex;
     const delay = reverseIndex * STAGGER_DELAY;
     
@@ -125,16 +123,47 @@ const PopupCard = memo(function PopupCard({
     return null;
   }
 
-  const { screenPos, distance, opacity } = data;
+  const { opacity, distance } = data;
+  
+  // Use smooth position or fall back to direct position
+  const displayX = smoothPosition?.x ?? position?.x ?? data.screenPos?.x ?? 0;
+  const displayY = smoothPosition?.y ?? position?.y ?? data.screenPos?.y ?? 0;
   
   const clampedDistance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, distance || 300));
-  const worldScale = MIN_DISTANCE / clampedDistance;
-  
   const isCompact = clampedDistance > COMPACT_DISTANCE && !isFocused;
   
+  const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
+  const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
+  
+  // Calculate position based on anchor
+  let left = displayX;
+  let top = displayY;
+  let originX = 'left';
+  let originY = 'top';
+  
+  switch (anchor) {
+    case 'top-right':
+      left = displayX - width;
+      originX = 'right';
+      break;
+    case 'bottom-left':
+      top = displayY - height;
+      originY = 'bottom';
+      break;
+    case 'bottom-right':
+      left = displayX - width;
+      top = displayY - height;
+      originX = 'right';
+      originY = 'bottom';
+      break;
+    default: // top-left
+      break;
+  }
+  
+  // Scale calculations
   const baseScale = isCompact ? 0.8 : 1.0;
   const focusBoost = isFocused ? 1.15 : 1;
-  const hoverBoost = isHovered && !isFocused ? 1.08 : 1;
+  const hoverBoost = isHovered ? 1.2 : 1; // More prominent hover effect
   
   // Animation scale
   let animScale = 1;
@@ -144,22 +173,11 @@ const PopupCard = memo(function PopupCard({
     animScale = 0.3;
   }
   
-  let finalScale = baseScale * worldScale * focusBoost * hoverBoost * animScale;
-  finalScale = Math.max(0.2, Math.min(1.3, finalScale));
+  // Final scale includes collision scale (from App.jsx)
+  let finalScale = baseScale * worldScale * collisionScale * focusBoost * hoverBoost * animScale;
+  finalScale = Math.max(0.2, Math.min(1.4, finalScale));
   
-  const scaledOffset = {
-    x: (offset?.x || 0) * worldScale,
-    y: (offset?.y || 0) * worldScale
-  };
-  
-  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, isCompact, scaledOffset);
-  
-  let computedZIndex = zIndex || 1000;
-  if (isFocused) computedZIndex = 2000;
-  if (isHovered) computedZIndex = 2500;
-
-  const transformOrigin = `${pos.originX} ${pos.originY}`;
-  
+  // Opacity
   let animOpacity = opacity;
   if (animationState === 'waiting' || animationState === 'entering') {
     animOpacity = 0;
@@ -167,16 +185,21 @@ const PopupCard = memo(function PopupCard({
     animOpacity = 0;
   }
   
+  let computedZIndex = zIndex || 1000;
+  if (isFocused) computedZIndex = 2000;
+  if (isHovered) computedZIndex = 2500;
+
+  const transformOrigin = `${originX} ${originY}`;
   const infoText = [card.title, card.university].filter(Boolean).join(' · ');
 
   return (
     <div 
       className={`popup-card ${isFocused ? 'focused' : ''} ${isHovered ? 'hovered' : ''} ${isCompact ? 'compact' : ''}`}
       style={{
-        left: pos.left,
-        top: pos.top,
-        width: isCompact ? COMPACT_SIZE : CARD_WIDTH,
-        height: isCompact ? COMPACT_SIZE : CARD_HEIGHT,
+        left,
+        top,
+        width,
+        height,
         transform: `scale(${finalScale})`,
         transformOrigin,
         opacity: animOpacity,
