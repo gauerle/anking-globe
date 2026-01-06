@@ -18,56 +18,6 @@ const COLORS = {
 
 const DEFAULT_STAR_COLOR = '#9333ea';
 
-/**
- * Group cards that are close together into clusters
- * Each cluster will be represented by a single star
- */
-function clusterCardsByLocation(cards, thresholdDegrees = 3) {
-  if (!cards || cards.length === 0) return [];
-  
-  const clusters = [];
-  const assigned = new Set();
-  
-  for (const card of cards) {
-    if (assigned.has(card.id)) continue;
-    
-    const cluster = [card];
-    assigned.add(card.id);
-    
-    // Find all nearby cards
-    for (const other of cards) {
-      if (assigned.has(other.id)) continue;
-      const dist = Math.sqrt(
-        Math.pow(card.lat - other.lat, 2) + 
-        Math.pow(card.lng - other.lng, 2)
-      );
-      if (dist < thresholdDegrees) {
-        cluster.push(other);
-        assigned.add(other.id);
-      }
-    }
-    
-    clusters.push(cluster);
-  }
-  
-  return clusters;
-}
-
-/**
- * Calculate the centroid (average position) of a cluster
- */
-function getClusterCentroid(cluster) {
-  let lat = 0, lng = 0;
-  for (const card of cluster) {
-    lat += card.lat;
-    lng += card.lng;
-  }
-  return {
-    lat: lat / cluster.length,
-    lng: lng / cluster.length
-  };
-}
-
 function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibilityChange, onInteraction, focusCardId, onFocusLost, visibleCardIds }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
@@ -95,6 +45,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   const pendingHoverUpdate = useRef(null);
   const visibleCardIdsRef = useRef(visibleCardIds);
   
+  // Track ray opacity for smooth transitions
   const rayOpacityRef = useRef({});
   
   const rayOrigin = useRef(new THREE.Vector3());
@@ -304,25 +255,31 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     return { r, g, b };
   }, []);
 
+  // Create star-shaped beam geometry that matches the star exactly
   const createStarBeamGeometry = useCallback(() => {
+    // Parse the actual SVG star path
     const svgPath = 'M4.9.28l2.13,2.42,3.16-.69c.6-.21,1.1.49.71.99l-1.62,2.83,1.6,2.74c.38.5-.12,1.19-.72.98l-3.16-.61-2.14,2.31c-.36.52-1.17.25-1.16-.38l-.37-3.13L.45,6.36c-.61-.18-.6-1.04,0-1.22l2.9-1.26.39-3.23c-.01-.63.8-.89,1.16-.37Z';
     
     const loader = new SVGLoader();
     const svgData = loader.parse(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 11.04 11.53"><path d="${svgPath}"/></svg>`);
     
+    // Get the star shape from SVG
     const shapes = SVGLoader.createShapes(svgData.paths[0]);
     const starShape = shapes[0];
     
+    // SVG viewBox center
     const svgCenterX = 11.04 / 2;
     const svgCenterY = 11.53 / 2;
     
+    // Scale factor to match MARKER_SIZE
     const svgSize = Math.max(11.04, 11.53);
     const scaleFactor = MARKER_SIZE / svgSize;
     
+    // Get points from the shape and center/scale them
     const shapePoints = starShape.getPoints(32);
     const centeredPoints = shapePoints.map(p => ({
       x: (p.x - svgCenterX) * scaleFactor,
-      y: -(p.y - svgCenterY) * scaleFactor
+      y: -(p.y - svgCenterY) * scaleFactor // Flip Y for Three.js
     }));
     
     const segments = 20;
@@ -332,10 +289,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const uvs = [];
     const indices = [];
     
+    // Create rings along the ray length
     for (let seg = 0; seg <= segments; seg++) {
       const t = seg / segments;
       const z = t * RAY_LENGTH;
-      const scale = 1 + t * 1.2;
+      const scale = 1 + t * 1.2; // Expand as ray extends
       
       for (let i = 0; i < numPoints; i++) {
         const pt = centeredPoints[i];
@@ -343,12 +301,14 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         uvs.push(i / numPoints, t);
       }
       
+      // Center point for this ring
       positions.push(0, 0, z);
       uvs.push(0.5, t);
     }
     
     const vertsPerRing = numPoints + 1;
     
+    // Create faces between rings
     for (let seg = 0; seg < segments; seg++) {
       const currBase = seg * vertsPerRing;
       const nextBase = (seg + 1) * vertsPerRing;
@@ -381,7 +341,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     const material = new THREE.ShaderMaterial({
       uniforms: {
         color: { value: new THREE.Color(r / 255, g / 255, b / 255) },
-        opacity: { value: 0.15 },
+        opacity: { value: 0.35 },
         rayLength: { value: RAY_LENGTH }
       },
       vertexShader: `
@@ -418,10 +378,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     return beam;
   }, [parseColor, createStarBeamGeometry]);
 
-  const createStarMarker = useCallback((card, starTexture, glowTexture) => {
+  const createStarMarker = useCallback((card, starTexture, glowTexture, existingMarkers = []) => {
     const group = new THREE.Group();
     
     const starContainer = new THREE.Group();
+    // Seeded random based on card ID for consistent rotation
     let hash = 0;
     for (let i = 0; i < card.id.length; i++) {
       hash = ((hash << 5) - hash) + card.id.charCodeAt(i);
@@ -432,11 +393,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     starContainer.userData = { type: 'starContainer', baseRotation };
     
     const glowMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(MARKER_SIZE * 1.5, MARKER_SIZE * 1.5),
-      new THREE.MeshBasicMaterial({
+        new THREE.PlaneGeometry(MARKER_SIZE * 1.5, MARKER_SIZE * 1.5),
+        new THREE.MeshBasicMaterial({
         map: glowTexture,
         transparent: true,
-        opacity: 0.1,
+        opacity: 0.3,
         side: THREE.DoubleSide,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -469,16 +430,75 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     
     rayOpacityRef.current[card.id] = 1;
     
-    // Simple position calculation - no collision detection needed (clustering handles it)
-    const phi = (90 - card.lat) * (Math.PI / 180);
-    const theta = (card.lng + 180) * (Math.PI / 180);
-    const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
+    let lat = card.lat;
+    let lng = card.lng;
     
-    group.position.set(
-      -r * Math.sin(phi) * Math.cos(theta),
-      r * Math.cos(phi),
-      r * Math.sin(phi) * Math.sin(theta)
-    );
+    const MIN_DISTANCE = 6;  // Minimum distance between markers in 3D space
+    
+    const calcPosition = (latitude, longitude) => {
+      const phi = (90 - latitude) * (Math.PI / 180);
+      const theta = (longitude + 180) * (Math.PI / 180);
+      const r = GLOBE_RADIUS + LAND_ELEVATION + MARKER_OFFSET;
+      return new THREE.Vector3(
+        -r * Math.sin(phi) * Math.cos(theta),
+        r * Math.cos(phi),
+        r * Math.sin(phi) * Math.sin(theta)
+      );
+    };
+    
+    let testPos = calcPosition(lat, lng);
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (attempts < maxAttempts) {
+      let collision = null;
+      let minDist = MIN_DISTANCE;
+      
+      // Find the closest collision
+      for (const existingMarker of existingMarkers) {
+        const dist = testPos.distanceTo(existingMarker.position);
+        if (dist < minDist) {
+          minDist = dist;
+          collision = existingMarker;
+        }
+      }
+      
+      // No collision - we're done
+      if (!collision) {
+        break;
+      }
+      
+      const existingCard = collision.userData.card;
+      if (!existingCard) break;
+      
+      // Calculate direction FROM existing TO this card (in lat/lng space)
+      let dLat = lat - existingCard.lat;
+      let dLng = lng - existingCard.lng;
+      const len = Math.sqrt(dLat * dLat + dLng * dLng);
+      
+      // If they're at the exact same position, push in a random direction
+      if (len < 0.001) {
+        const angle = Math.random() * Math.PI * 2;
+        dLat = Math.cos(angle);
+        dLng = Math.sin(angle);
+      } else {
+        // Normalize
+        dLat /= len;
+        dLng /= len;
+      }
+      
+      // Push this card AWAY from the existing card
+      // Move by a fixed amount in the direction away from the collision
+      const pushAmount = 1.5 * (1 + attempts * 0.5);  // Increase push each attempt
+      lat = lat + dLat * pushAmount;
+      lng = lng + dLng * pushAmount;
+      
+      // Recalculate position
+      testPos = calcPosition(lat, lng);
+      attempts++;
+    }
+    
+    group.position.copy(testPos);
     
     const outwardDir = group.position.clone().normalize();
     const targetPoint = group.position.clone().add(outwardDir);
@@ -561,54 +581,50 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     return tempVec.current.distanceTo(point);
   }, []);
 
-  const findCardsAtMouse = useCallback((clientX, clientY) => {
-    const camera = cameraRef.current;
-    const container = containerRef.current;
-    const markers = markersRef.current;
+  const findCardAtMouse = useCallback((clientX, clientY) => {
+  const camera = cameraRef.current;
+  const container = containerRef.current;
+  const markers = markersRef.current;
+  
+  if (!camera || !container || markers.length === 0) return null;
+  
+  const rect = container.getBoundingClientRect();
+  
+  // Convert click to screen coordinates
+  const clickX = clientX - rect.left;
+  const clickY = clientY - rect.top;
+  
+  let closestCard = null;
+  let closestScreenDist = 25; // pixels threshold
+  
+  const screenVec = new THREE.Vector3();
+  
+  for (const marker of markers) {
+    if (!marker.visible) continue;
     
-    if (!camera || !container || markers.length === 0) return null;
+    const card = marker.userData.card;
+    if (!card) continue;
     
-    const rect = container.getBoundingClientRect();
-    const clickX = clientX - rect.left;
-    const clickY = clientY - rect.top;
+    const opacity = markerOpacity.current[card.id] ?? 0;
+    if (opacity < 0.3) continue;
     
-    let closestMarker = null;
-    let closestScreenDist = 25;
+    // Project marker to screen space
+    screenVec.copy(marker.position).project(camera);
+    const markerScreenX = (screenVec.x * 0.5 + 0.5) * rect.width;
+    const markerScreenY = (-screenVec.y * 0.5 + 0.5) * rect.height;
     
-    const screenVec = new THREE.Vector3();
+    // Screen distance in pixels
+    const dx = clickX - markerScreenX;
+    const dy = clickY - markerScreenY;
+    const screenDist = Math.sqrt(dx * dx + dy * dy);
     
-    for (const marker of markers) {
-      if (!marker.visible) continue;
-      
-      const markerCard = marker.userData.card;
-      if (!markerCard) continue;
-      
-      // Check if any card in this cluster is visible
-      const clusterCards = marker.userData.cards || [markerCard];
-      const anyVisible = clusterCards.some(card => {
-        const opacity = markerOpacity.current[card.id] ?? 0;
-        return opacity >= 0.3;
-      });
-      if (!anyVisible) continue;
-      
-      screenVec.copy(marker.position).project(camera);
-      const markerScreenX = (screenVec.x * 0.5 + 0.5) * rect.width;
-      const markerScreenY = (-screenVec.y * 0.5 + 0.5) * rect.height;
-      
-      const dx = clickX - markerScreenX;
-      const dy = clickY - markerScreenY;
-      const screenDist = Math.sqrt(dx * dx + dy * dy);
-      
-      if (screenDist < closestScreenDist) {
-        closestScreenDist = screenDist;
-        closestMarker = marker;
-      }
+    if (screenDist < closestScreenDist) {
+      closestScreenDist = screenDist;
+      closestCard = card;
     }
-    
-    if (!closestMarker) return null;
-    
-    // Return ALL cards in this cluster
-    return closestMarker.userData.cards || [closestMarker.userData.card];
+    }
+  
+    return closestCard;
   }, []);
 
   useEffect(() => {
@@ -749,6 +765,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         );
       }
 
+      const pulseScale = 1 + Math.sin(time * 0.002) * 0.03;
+      const pulseGlow = 0.25 + Math.sin(time * 0.002) * 0.05;
+      const beamBasePulse = 0.3 + Math.sin(time * 0.003) * 0.08;
       const rotationSpeed = time * 0.0005;
       
       const markers = markersRef.current;
@@ -764,97 +783,87 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         const card = marker.userData.card;
         if (!card) continue;
         
-        // Get all cards in this cluster
-        const clusterCards = marker.userData.cards || [card];
-        
-        // Check if any card in cluster is in visible set
+        // Check if card is in visible set (null means show all)
         const visibleIds = visibleCardIdsRef.current;
-        const isInVisibleSet = clusterCards.some(c => 
-          visibleIds === null || visibleIds.has(c.id)
-        );
+        const isInVisibleSet = visibleIds === null || visibleIds.has(card.id);
         
         const { visible, targetOpacity, scale } = getMarkerVisibility(marker.position, camPos, card.id);
         visibilityState.current[card.id] = { visible };
         
+        // Apply visibility filter
         const filteredTargetOpacity = isInVisibleSet ? targetOpacity : 0;
         
         const currentOpacity = markerOpacity.current[card.id] ?? 1;
         const newOpacity = currentOpacity + (filteredTargetOpacity - currentOpacity) * 0.1;
         markerOpacity.current[card.id] = newOpacity;
         
-        // Update opacity for all cards in cluster
-        for (const clusterCard of clusterCards) {
-          markerOpacity.current[clusterCard.id] = newOpacity;
-        }
-        
         marker.visible = newOpacity > 0.01;
         
-        // Check if ANY card in cluster is selected
-        const isSelected = clusterCards.some(c => selected?.includes(c.id));
+        const isSelected = selected?.includes(card.id);
         
-        // Get ray opacity for the marker
+        // Smoothly animate ray opacity - fade to 0 when selected
         const currentRayOpacity = rayOpacityRef.current[card.id] ?? 1;
         const targetRayOpacity = isSelected ? 0 : 1;
         const newRayOpacity = currentRayOpacity + (targetRayOpacity - currentRayOpacity) * 0.08;
         rayOpacityRef.current[card.id] = newRayOpacity;
+        
+        const isFocused = focusCardId === card.id;
         
         let starContainer = null;
         for (const child of marker.children) {
           if (child.userData?.type === 'starContainer') starContainer = child;
         }
 
-        if (isSelected) {
-          marker.scale.setScalar(0.7 * scale);
-          
-          if (starContainer) {
-            const base = starContainer.userData.baseRotation || 0;
-            starContainer.rotation.z = base + rotationSpeed;
-          }
-          
-          marker.traverse((child) => {
-            if (child.userData?.type === 'star') {
-              child.material.opacity = newOpacity;
-            } else if (child.userData?.type === 'glow') {
-              child.material.opacity = 0.6 * newOpacity;
-              child.scale.setScalar(1.8);
-            } else if (child.userData?.type === 'beam' && child.material.uniforms) {
-              child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
-            }
-          });
-        } else {
-          marker.scale.setScalar(scale);
-          
-          // Reset star rotation to match beam
-          if (starContainer) {
-            const base = starContainer.userData.baseRotation || 0;
-            starContainer.rotation.z = base;
-          }
-          
-          marker.traverse((child) => {
-            if (child.userData?.type === 'star') {
-              child.material.opacity = newOpacity;
-            } else if (child.userData?.type === 'glow') {
-              child.material.opacity = 0.3 * newOpacity;
-              child.scale.setScalar(1);
-            } else if (child.userData?.type === 'beam' && child.material.uniforms) {
-              child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
-            }
-          });
+      if (isSelected) {
+        marker.scale.setScalar(0.7 * scale);
+        
+        if (starContainer) {
+          const base = starContainer.userData.baseRotation || 0;
+          starContainer.rotation.z = base + rotationSpeed;
         }
+        
+        marker.traverse((child) => {
+          if (child.userData?.type === 'star') {
+            child.material.opacity = newOpacity;
+          } else if (child.userData?.type === 'glow') {
+            child.material.opacity = 0.6 * newOpacity;
+            child.scale.setScalar(1.8);
+          } else if (child.userData?.type === 'beam' && child.material.uniforms) {
+            child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
+          }
+        });
+      } else {
+        // Reset to normal state with rays
+        marker.scale.setScalar(scale);
+        
+        // FIX: Reset star rotation to match beam
+        if (starContainer) {
+          const base = starContainer.userData.baseRotation || 0;
+          starContainer.rotation.z = base;
+        }
+        
+        marker.traverse((child) => {
+          if (child.userData?.type === 'star') {
+            child.material.opacity = newOpacity;
+          } else if (child.userData?.type === 'glow') {
+            child.material.opacity = 0.3 * newOpacity;
+            child.scale.setScalar(1);
+          } else if (child.userData?.type === 'beam' && child.material.uniforms) {
+            child.material.uniforms.opacity.value = newRayOpacity * 0.35 * newOpacity;
+          }
+        });
+      }
         
         screenVec.copy(marker.position).project(camera);
         const screenX = (screenVec.x * 0.5 + 0.5) * w;
         const screenY = (-screenVec.y * 0.5 + 0.5) * h;
         
-        // Report visibility for ALL cards in this cluster
-        for (const clusterCard of clusterCards) {
-          visibilityData[clusterCard.id] = {
-            visible: marker.visible,
-            screenPos: { x: screenX, y: screenY },
-            scale,
-            opacity: newOpacity
-          };
-        }
+        visibilityData[card.id] = {
+          visible: marker.visible,
+          screenPos: { x: screenX, y: screenY },
+          scale,
+          opacity: newOpacity
+        };
       }
       
       if (markers.length > 0 && frameCount.current % 1 === 0) {
@@ -894,8 +903,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
 
   useEffect(() => {
     if (controlsRef.current) {
+      // Pause auto-rotation when hovering, cards selected, or focused
       const shouldRotate = autoRotate && !isHovering && (!selectedCards || selectedCards.length === 0) && !focusCardId;
       controlsRef.current.autoRotate = shouldRotate;
+      
+      // Keep rotation enabled - we detect rotation start to exit focus mode
     }
   }, [autoRotate, isHovering, selectedCards, focusCardId]);
 
@@ -904,19 +916,18 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     if (!cameraRef.current || !controlsRef.current) return;
     
     if (focusCardId) {
+      // Save current camera position only if not already saved
       if (!savedCameraPosition.current) {
         savedCameraPosition.current = cameraRef.current.position.clone();
       }
       
-      const marker = markersRef.current.find(m => {
-        const clusterCards = m.userData.cards || [m.userData.card];
-        return clusterCards.some(c => c.id === focusCardId);
-      });
-      
+      // Find the focused card's marker
+      const marker = markersRef.current.find(m => m.userData.card?.id === focusCardId);
       if (marker) {
         const markerPos = marker.position.clone().normalize();
-        const targetPos = markerPos.multiplyScalar(160);
+        const targetPos = markerPos.multiplyScalar(160); // Zoom in closer
         
+        // Animate camera
         const startPos = cameraRef.current.position.clone();
         const duration = 600;
         const startTime = Date.now();
@@ -940,12 +951,12 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         return () => { cancelled = true; };
       }
     } else {
-      // Simply clear saved position - no zoom out animation
-      savedCameraPosition.current = null;
-    }
+     savedCameraPosition.current = null;
+   }
   }, [focusCardId]);
 
-  // Detect rotation/zoom attempt to unfocus
+  // Detect rotation attempt to unfocus
+  // Detect rotation/zoom attempt to unfocus (but not clicks)
   useEffect(() => {
     if (!controlsRef.current || !containerRef.current) return;
     
@@ -959,6 +970,7 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
       if (!mouseDownPos) return;
       const dx = e.clientX - mouseDownPos.x;
       const dy = e.clientY - mouseDownPos.y;
+      // Only trigger focus lost if actually dragging (moved > 5px)
       if (Math.sqrt(dx*dx + dy*dy) > 5) {
         if (focusCardIdRef.current && onFocusLost) {
           onFocusLost();
@@ -983,13 +995,11 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     };
   }, [onFocusLost]);
 
-  // Create markers for clusters
   useEffect(() => {
     if (!sceneRef.current || !glowTextureRef.current) return;
     if (!starTexturesRef.current[DEFAULT_STAR_COLOR]) return;
     if (!cards || cards.length === 0) return;
     
-    // Clean up old markers
     markersRef.current.forEach(m => {
       m.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
@@ -1001,41 +1011,13 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
     markerOpacity.current = {};
     rayOpacityRef.current = {};
 
-    // Cluster cards by location (5 degrees threshold)
-    const clusters = clusterCardsByLocation(cards, 5);
-    console.log(`Created ${clusters.length} star clusters from ${cards.length} cards`);
-
-    // Create one marker per cluster
-    clusters.forEach(cluster => {
-      const centroid = getClusterCentroid(cluster);
-      
-      // Create a "virtual" card for the marker position
-      const markerCard = {
-        ...cluster[0],
-        lat: centroid.lat,
-        lng: centroid.lng,
-        id: cluster.map(c => c.id).join('-')
-      };
-      
-      const color = markerCard.starColor || DEFAULT_STAR_COLOR;
+    // Create markers for all cards - visibility is handled in animation loop
+    cards.forEach(card => {
+      const color = card.starColor || DEFAULT_STAR_COLOR;
       const starTexture = starTexturesRef.current[color] || starTexturesRef.current[DEFAULT_STAR_COLOR];
       const glowTexture = createGlowTexture(color);
       
-      const group = createStarMarker(markerCard, starTexture, glowTexture);
-      
-      // Store ALL cards in this cluster
-      group.userData = {
-        card: markerCard,
-        cards: cluster,
-        isCluster: cluster.length > 1
-      };
-      
-      // Initialize opacity for all cards in cluster
-      cluster.forEach(card => {
-        markerOpacity.current[card.id] = 1;
-        rayOpacityRef.current[card.id] = 1;
-      });
-      
+      const group = createStarMarker(card, starTexture, glowTexture, markersRef.current);
       sceneRef.current.add(group);
       markersRef.current.push(group);
     });
@@ -1044,39 +1026,15 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   useEffect(() => {
     const checkTexture = setInterval(() => {
       if (starTexturesRef.current[DEFAULT_STAR_COLOR] && sceneRef.current && markersRef.current.length === 0 && cards && cards.length > 0) {
-        const clusters = clusterCardsByLocation(cards, 5);
-        
-        clusters.forEach(cluster => {
-          const centroid = getClusterCentroid(cluster);
-          
-          const markerCard = {
-            ...cluster[0],
-            lat: centroid.lat,
-            lng: centroid.lng,
-            id: cluster.map(c => c.id).join('-')
-          };
-          
-          const color = markerCard.starColor || DEFAULT_STAR_COLOR;
+        cards.forEach(card => {
+          const color = card.starColor || DEFAULT_STAR_COLOR;
           const starTexture = starTexturesRef.current[color] || starTexturesRef.current[DEFAULT_STAR_COLOR];
           const glowTexture = createGlowTexture(color);
           
-          const group = createStarMarker(markerCard, starTexture, glowTexture);
-          
-          group.userData = {
-            card: markerCard,
-            cards: cluster,
-            isCluster: cluster.length > 1
-          };
-          
-          cluster.forEach(card => {
-            markerOpacity.current[card.id] = 1;
-            rayOpacityRef.current[card.id] = 1;
-          });
-          
+          const group = createStarMarker(card, starTexture, glowTexture, markersRef.current);
           sceneRef.current.add(group);
           markersRef.current.push(group);
         });
-        
         clearInterval(checkTexture);
       }
     }, 100);
@@ -1084,29 +1042,29 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
   }, [cards, createStarMarker, createGlowTexture]);
 
   const handleClick = useCallback((e) => {
-    const cards = findCardsAtMouse(e.clientX, e.clientY);
-    if (cards && cards.length > 0) {
-      onMarkerClick(cards);
+    const card = findCardAtMouse(e.clientX, e.clientY);
+    if (card) {
+      onMarkerClick(card);
     }
-  }, [onMarkerClick, findCardsAtMouse]);
+  }, [onMarkerClick, findCardAtMouse]);
 
   const handlePointerMove = useCallback((e) => {
-    const cards = findCardsAtMouse(e.clientX, e.clientY);
-    const hovering = cards && cards.length > 0;
+    const card = findCardAtMouse(e.clientX, e.clientY);
+    const newHoveredId = card?.id ?? null;
     
-    if (hovering !== (lastHoveredId.current !== null)) {
-      lastHoveredId.current = hovering ? 'hovering' : null;
+    if (newHoveredId !== lastHoveredId.current) {
+      lastHoveredId.current = newHoveredId;
       
       if (pendingHoverUpdate.current) {
         cancelAnimationFrame(pendingHoverUpdate.current);
       }
       
       pendingHoverUpdate.current = requestAnimationFrame(() => {
-        setIsHovering(hovering);
+        setIsHovering(newHoveredId !== null);
         pendingHoverUpdate.current = null;
       });
     }
-  }, [findCardsAtMouse]);
+  }, [findCardAtMouse]);
 
   const handlePointerLeave = useCallback(() => {
     if (pendingHoverUpdate.current) {

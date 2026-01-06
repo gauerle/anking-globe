@@ -215,11 +215,8 @@ body {
   text-overflow: ellipsis;
 }
 
-/* =====================================================
-   MARQUEE - Only activates when parent has .focused
-   ===================================================== */
-
-.marquee-wrapper {
+/* Marquee container */
+.marquee-container {
   overflow: hidden;
   white-space: nowrap;
   position: relative;
@@ -227,45 +224,36 @@ body {
   min-width: 0;
 }
 
-.marquee-wrapper.card-info {
+.marquee-container.card-info {
   font-family: 'Sora', sans-serif;
   font-size: 10px;
   color: #6b7280;
   line-height: 1.4;
 }
 
-.marquee-wrapper.card-location-text {
+.marquee-container.card-location-text {
   font-family: 'Sora', sans-serif;
   font-size: 10px;
   color: var(--accent-purple);
 }
 
-/* Default state: no animation, just ellipsis */
-.marquee-content {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ONLY when .focused: enable marquee animation */
-.popup-card.focused .marquee-content {
+.marquee-text {
   display: inline-block;
-  overflow: visible;
-  text-overflow: clip;
-  animation: marquee 8s linear infinite;
-  padding-right: 50px;
+  white-space: nowrap;
 }
 
-/* Add separator dots after text in focused state */
-.popup-card.focused .marquee-content::after {
-  content: ' • • • ';
+/* Only scroll when .scrolling class is added (on hover) */
+.marquee-text.scrolling {
+  animation: marquee 6s linear infinite;
+}
+
+.marquee-spacer {
   opacity: 0.5;
 }
 
 @keyframes marquee {
   0% {
-    transform: translateX(0%);
+    transform: translateX(0);
   }
   100% {
     transform: translateX(-50%);
@@ -330,7 +318,6 @@ body {
   border-left: none;
 }
 
-/* Hover on compact mode - just highlight, don't expand */
 .popup-card.compact:hover .popup-card-inner {
   border-color: var(--accent-purple);
   box-shadow: 0 4px 12px rgba(147, 51, 234, 0.25);
