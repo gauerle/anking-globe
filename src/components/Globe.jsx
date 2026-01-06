@@ -22,7 +22,7 @@ const DEFAULT_STAR_COLOR = '#9333ea';
  * Group cards that are close together into clusters
  * Each cluster will be represented by a single star
  */
-function clusterCardsByLocation(cards, thresholdDegrees = 5) {
+function clusterCardsByLocation(cards, thresholdDegrees = 3) {
   if (!cards || cards.length === 0) return [];
   
   const clusters = [];
