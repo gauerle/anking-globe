@@ -8,75 +8,25 @@ const CARD_HEIGHT = 58;
 // Compact mode dimensions
 const COMPACT_SIZE = 36;
 
-// Scale threshold for compact mode (when rawScale is below this, show compact)
-const COMPACT_THRESHOLD = 0.55;
+// Scale threshold for compact mode (lowered so cards stay full longer when zooming out)
+const COMPACT_THRESHOLD = 0.42;
 
 /**
  * Calculate card position so that the star is at the specified corner.
- * 
- * Visual representation:
- * 
- * 'top-left' anchor:           'top-right' anchor:
- *    ★━━━━━━━━━━━━━━━┓            ┏━━━━━━━━━━━━━━━★
- *    ┃    CARD       ┃            ┃    CARD       ┃
- *    ┗━━━━━━━━━━━━━━━┛            ┗━━━━━━━━━━━━━━━┛
- * 
- * 'bottom-left' anchor:        'bottom-right' anchor:
- *    ┏━━━━━━━━━━━━━━━┓            ┏━━━━━━━━━━━━━━━┓
- *    ┃    CARD       ┃            ┃    CARD       ┃
- *    ★━━━━━━━━━━━━━━━┛            ┗━━━━━━━━━━━━━━━★
  */
 function calculatePosition(anchor, starX, starY, width, height) {
   switch (anchor) {
     case 'top-left':
-      // Star is at top-left corner
-      // Card extends to the RIGHT and DOWN
-      return {
-        left: starX,
-        top: starY,
-        originX: 'left',
-        originY: 'top'
-      };
-    
+      return { left: starX, top: starY, originX: 'left', originY: 'top' };
     case 'top-right':
-      // Star is at top-right corner
-      // Card extends to the LEFT and DOWN
-      return {
-        left: starX - width,
-        top: starY,
-        originX: 'right',
-        originY: 'top'
-      };
-    
+      return { left: starX - width, top: starY, originX: 'right', originY: 'top' };
     case 'bottom-left':
-      // Star is at bottom-left corner
-      // Card extends to the RIGHT and UP
-      return {
-        left: starX,
-        top: starY - height,
-        originX: 'left',
-        originY: 'bottom'
-      };
-    
+      return { left: starX, top: starY - height, originX: 'left', originY: 'bottom' };
     case 'bottom-right':
-      // Star is at bottom-right corner
-      // Card extends to the LEFT and UP
-      return {
-        left: starX - width,
-        top: starY - height,
-        originX: 'right',
-        originY: 'bottom'
-      };
-    
+      return { left: starX - width, top: starY - height, originX: 'right', originY: 'bottom' };
     default:
-      // Fallback to top-left
       console.warn('Invalid anchor:', anchor, '- using top-left');
-      return {
-        left: starX,
-        top: starY,
-        originX: 'left',
-        originY: 'top'
-      };
+      return { left: starX, top: starY, originX: 'left', originY: 'top' };
   }
 }
 
@@ -94,19 +44,19 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   // Clamp raw scale
   const rawScale = Math.max(0.5, Math.min(0.85, scale));
   
-  // Determine if compact mode (image only when zoomed out)
+  // Determine if compact mode (image only when zoomed out far)
   const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused && !isHovered;
   
   // Current dimensions based on mode
   const currentWidth = isCompact ? COMPACT_SIZE : CARD_WIDTH;
   const currentHeight = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
   
-  // Scale calculations
-  const baseScale = isCompact ? 0.9 : 0.65;
-  const minScale = isCompact ? 0.6 : 0.45;
-  const maxScale = isCompact ? 1.0 : 0.8;
-  const focusBoost = isFocused ? 1.25 : 1;
-  const hoverBoost = isHovered && !isFocused ? 1.1 : 1;
+  // Scale calculations - INCREASED base size
+  const baseScale = isCompact ? 0.9 : 0.75;  // Was 0.65
+  const minScale = isCompact ? 0.6 : 0.5;    // Was 0.45
+  const maxScale = isCompact ? 1.0 : 0.9;    // Was 0.8
+  const focusBoost = isFocused ? 1.2 : 1;
+  const hoverBoost = isHovered ? 1.15 : 1;   // Hover now scales up even when focused
   
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));

@@ -137,6 +137,20 @@ body {
    POPUP CARD STYLES - Replace lines 136-258 in index.css
    ===================================================== */
 
+/* Focus backdrop - darkens area when a card is focused */
+.focus-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1500;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
 /* Popup Card - Full mode */
 .popup-card {
   position: absolute;
@@ -146,17 +160,16 @@ body {
     transform 0.15s ease-out, 
     opacity 0.15s ease-out;
   cursor: pointer;
-  /* Explicit dimensions set via inline style */
 }
 
 .popup-card.focused .popup-card-inner {
   border-color: var(--accent-purple);
-  box-shadow: 0 4px 16px rgba(147, 51, 234, 0.3);
+  box-shadow: 0 4px 20px rgba(147, 51, 234, 0.4);
 }
 
 .popup-card.hovered .popup-card-inner {
   border-color: #c4b5fd;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
 .popup-card-inner {

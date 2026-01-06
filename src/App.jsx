@@ -1,4 +1,4 @@
-console.log('APP VERSION 15 LOADED');
+console.log('APP VERSION 16 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -13,68 +13,34 @@ import { useGroups } from './hooks/useGroups';
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
-// Simulation viewport (approximate screen size for calculation)
+// Simulation viewport
 const SIM_WIDTH = 1200;
 const SIM_HEIGHT = 800;
 
-/**
- * Convert lat/lng to approximate screen position using equirectangular projection
- */
 function latLngToScreen(lat, lng) {
-  // Normalize to 0-1 range, then scale to viewport
   const x = ((lng + 180) / 360) * SIM_WIDTH;
   const y = ((90 - lat) / 180) * SIM_HEIGHT;
   return { x, y };
 }
 
-/**
- * Get bounding box for a card at given star position with given anchor
- */
 function getCardBounds(starX, starY, anchor) {
   let left, top;
-  
   switch (anchor) {
-    case 'top-left':
-      left = starX;
-      top = starY;
-      break;
-    case 'top-right':
-      left = starX - CARD_WIDTH;
-      top = starY;
-      break;
-    case 'bottom-left':
-      left = starX;
-      top = starY - CARD_HEIGHT;
-      break;
-    case 'bottom-right':
-      left = starX - CARD_WIDTH;
-      top = starY - CARD_HEIGHT;
-      break;
-    default:
-      left = starX;
-      top = starY;
+    case 'top-left': left = starX; top = starY; break;
+    case 'top-right': left = starX - CARD_WIDTH; top = starY; break;
+    case 'bottom-left': left = starX; top = starY - CARD_HEIGHT; break;
+    case 'bottom-right': left = starX - CARD_WIDTH; top = starY - CARD_HEIGHT; break;
+    default: left = starX; top = starY;
   }
-  
-  return {
-    left,
-    top,
-    right: left + CARD_WIDTH,
-    bottom: top + CARD_HEIGHT
-  };
+  return { left, top, right: left + CARD_WIDTH, bottom: top + CARD_HEIGHT };
 }
 
-/**
- * Calculate overlap area between two bounding boxes
- */
 function getOverlapArea(box1, box2) {
   const xOverlap = Math.max(0, Math.min(box1.right, box2.right) - Math.max(box1.left, box2.left));
   const yOverlap = Math.max(0, Math.min(box1.bottom, box2.bottom) - Math.max(box1.top, box2.top));
   return xOverlap * yOverlap;
 }
 
-/**
- * Calculate total overlap of a card with all placed cards
- */
 function getTotalOverlap(cardBounds, placedBounds) {
   let total = 0;
   for (const placed of placedBounds) {
@@ -83,65 +49,45 @@ function getTotalOverlap(cardBounds, placedBounds) {
   return total;
 }
 
-/**
- * SIMULATION-BASED ANCHOR ASSIGNMENT
- * 
- * For each card:
- * 1. Try all 4 anchor options
- * 2. Calculate overlap with already-placed cards
- * 3. Pick anchor with minimum overlap
- */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
   const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
   const anchors = {};
-  const placedBounds = []; // Bounding boxes of already-assigned cards
+  const placedBounds = [];
   
-  // Convert all cards to screen positions
   const cardScreenPos = {};
   for (const card of cards) {
     cardScreenPos[card.id] = latLngToScreen(card.lat, card.lng);
   }
   
-  // Sort cards by latitude (north to south) for consistent processing
   const sortedCards = [...cards].sort((a, b) => b.lat - a.lat);
   
-  // Greedy assignment
   for (const card of sortedCards) {
     const starPos = cardScreenPos[card.id];
-    
     let bestAnchor = 'top-left';
     let bestOverlap = Infinity;
     
-    // Try each anchor and pick the one with least overlap
     for (const anchor of CORNERS) {
       const bounds = getCardBounds(starPos.x, starPos.y, anchor);
       const overlap = getTotalOverlap(bounds, placedBounds);
-      
       if (overlap < bestOverlap) {
         bestOverlap = overlap;
         bestAnchor = anchor;
       }
-      
-      // If no overlap, we're done
       if (overlap === 0) break;
     }
     
     anchors[card.id] = bestAnchor;
-    
-    // Add this card's bounds to placed list
-    const finalBounds = getCardBounds(starPos.x, starPos.y, bestAnchor);
-    placedBounds.push(finalBounds);
+    placedBounds.push(getCardBounds(starPos.x, starPos.y, bestAnchor));
   }
   
-  // Second pass: try to improve any cards that still have overlap
+  // Second pass
   for (const card of sortedCards) {
     const starPos = cardScreenPos[card.id];
     const currentAnchor = anchors[card.id];
     const currentBounds = getCardBounds(starPos.x, starPos.y, currentAnchor);
     
-    // Get bounds of all OTHER cards
     const otherBounds = [];
     for (const other of sortedCards) {
       if (other.id === card.id) continue;
@@ -152,13 +98,10 @@ function computeCardAnchors(cards) {
     const currentOverlap = getTotalOverlap(currentBounds, otherBounds);
     
     if (currentOverlap > 0) {
-      // Try other anchors
       for (const anchor of CORNERS) {
         if (anchor === currentAnchor) continue;
-        
         const newBounds = getCardBounds(starPos.x, starPos.y, anchor);
         const newOverlap = getTotalOverlap(newBounds, otherBounds);
-        
         if (newOverlap < currentOverlap) {
           anchors[card.id] = anchor;
           break;
@@ -167,7 +110,6 @@ function computeCardAnchors(cards) {
     }
   }
   
-  // Log results
   console.log('Card anchors (simulation-based):');
   for (const card of sortedCards) {
     const pos = cardScreenPos[card.id];
@@ -280,10 +222,11 @@ function App() {
     setFocusedCard(card.id);
   }, [resetAutoRotateTimer, focusedCard]);
 
+  // CHANGED: Closing a card does NOT clear focus (no zoom out animation)
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
-    if (focusedCard === cardId) setFocusedCard(null);
-  }, [focusedCard]);
+    // Don't clear focusedCard - this prevents the unfocus/zoom-out animation
+  }, []);
 
   const handleFocusCard = useCallback((id) => {
     setFocusedCard(prev => prev === id ? null : id);
@@ -335,6 +278,11 @@ function App() {
     setFocusedCard(null);
   }, []);
 
+  // Click on backdrop to clear focus
+  const handleBackdropClick = useCallback(() => {
+    setFocusedCard(null);
+  }, []);
+
   if (loading) return <LoadingScreen />;
   if (error) return <div className="error-screen">Error: {error}</div>;
 
@@ -359,6 +307,14 @@ function App() {
           onFocusLost={handleFocusLost}
           visibleCardIds={visibleCardIds}
         />
+
+        {/* Focus backdrop overlay */}
+        {focusedCard && (
+          <div 
+            className="focus-backdrop" 
+            onClick={handleBackdropClick}
+          />
+        )}
 
         {!isEmbedMode && (
           <ControlsPanel
