@@ -37,14 +37,19 @@ const PopupCard = memo(function PopupCard({
   
   // Smooth position updates
   useEffect(() => {
-    if (!position || !data?.visible) return;
+    if (!data?.visible) return;
     
-    const targetX = position.x;
-    const targetY = position.y;
+    const isSingle = position?.isSingle ?? true;
+    const targetX = isSingle 
+      ? (position?.starX ?? data.screenPos?.x ?? 0)
+      : (position?.x ?? data.screenPos?.x ?? 0);
+    const targetY = isSingle
+      ? (position?.starY ?? data.screenPos?.y ?? 0)
+      : (position?.y ?? data.screenPos?.y ?? 0);
     
     if (!smoothPosition) {
       // Initial position (from star center for animation)
-      setSmoothPosition({ x: position.starX, y: position.starY });
+      setSmoothPosition({ x: position?.starX ?? targetX, y: position?.starY ?? targetY });
     }
     
     const animate = () => {
@@ -54,10 +59,8 @@ const PopupCard = memo(function PopupCard({
         const dx = targetX - prev.x;
         const dy = targetY - prev.y;
         
-        // Lerp factor - higher = faster
-        const lerp = 0.15;
+        const lerp = 0.12;
         
-        // If close enough, snap to target
         if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
           return { x: targetX, y: targetY };
         }
@@ -78,7 +81,7 @@ const PopupCard = memo(function PopupCard({
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [position, data?.visible]);
+  }, [position, data?.visible, data?.screenPos, smoothPosition]);
   
   // Staggered enter animation
   useEffect(() => {
@@ -125,15 +128,32 @@ const PopupCard = memo(function PopupCard({
 
   const { opacity, distance } = data;
   
-  // Use smooth position or fall back to direct position
-  const displayX = smoothPosition?.x ?? position?.x ?? data.screenPos?.x ?? 0;
-  const displayY = smoothPosition?.y ?? position?.y ?? data.screenPos?.y ?? 0;
-  
   const clampedDistance = Math.max(MIN_DISTANCE, Math.min(MAX_DISTANCE, distance || 300));
   const isCompact = clampedDistance > COMPACT_DISTANCE && !isFocused;
   
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
   const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
+  
+  // Use position from collision system, or fall back to star position
+  const isSingle = position?.isSingle ?? true;
+  const displayAnchor = position?.anchor || anchor || 'top-left';
+  
+  // For smooth animation, lerp to target position
+  let targetX, targetY;
+  
+  if (isSingle) {
+    // Single card: corner at star center
+    targetX = position?.starX ?? data.screenPos?.x ?? 0;
+    targetY = position?.starY ?? data.screenPos?.y ?? 0;
+  } else {
+    // Multi-card: use ring position
+    targetX = position?.x ?? data.screenPos?.x ?? 0;
+    targetY = position?.y ?? data.screenPos?.y ?? 0;
+  }
+  
+  // Use smooth position or target
+  const displayX = smoothPosition?.x ?? targetX;
+  const displayY = smoothPosition?.y ?? targetY;
   
   // Calculate position based on anchor
   let left = displayX;
@@ -141,7 +161,7 @@ const PopupCard = memo(function PopupCard({
   let originX = 'left';
   let originY = 'top';
   
-  switch (anchor) {
+  switch (displayAnchor) {
     case 'top-right':
       left = displayX - width;
       originX = 'right';
@@ -163,7 +183,7 @@ const PopupCard = memo(function PopupCard({
   // Scale calculations
   const baseScale = isCompact ? 0.8 : 1.0;
   const focusBoost = isFocused ? 1.15 : 1;
-  const hoverBoost = isHovered ? 1.2 : 1; // More prominent hover effect
+  const hoverBoost = isHovered ? 1.2 : 1;
   
   // Animation scale
   let animScale = 1;
@@ -174,7 +194,8 @@ const PopupCard = memo(function PopupCard({
   }
   
   // Final scale includes collision scale (from App.jsx)
-  let finalScale = baseScale * worldScale * collisionScale * focusBoost * hoverBoost * animScale;
+  const positionScale = position?.scale ?? collisionScale ?? 1;
+  let finalScale = baseScale * worldScale * positionScale * focusBoost * hoverBoost * animScale;
   finalScale = Math.max(0.2, Math.min(1.4, finalScale));
   
   // Opacity

@@ -1,4 +1,4 @@
-console.log('APP VERSION 30 LOADED - RING COLLISION SYSTEM');
+console.log('APP VERSION 31 LOADED - RING COLLISION SYSTEM');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -14,10 +14,9 @@ const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
 // Ring configuration
-const RING_RADIUS = 25; // Base ring radius in pixels
-const RING_POINTS = 8;  // Number of attachment points on ring
-const MIN_SCALE = 0.5;  // Minimum card scale when avoiding collisions
-const SCALE_STEP = 0.1; // How much to reduce scale per collision iteration
+const RING_RADIUS = 25;
+const MIN_SCALE = 0.5;
+const SCALE_STEP = 0.1;
 
 /**
  * Group cards by geographic proximity
@@ -55,36 +54,78 @@ function groupCardsByLocation(cards, threshold = 3.0) {
 }
 
 /**
- * Get card bounds at a ring position
+ * Get card bounds for a single card (corner at star center)
  */
-function getCardBounds(starX, starY, ringAngle, ringRadius, cardScale, isCompact = false) {
+function getSingleCardBounds(starX, starY, anchor, cardScale, isCompact = false) {
   const width = (isCompact ? COMPACT_SIZE : CARD_WIDTH) * cardScale;
   const height = (isCompact ? COMPACT_SIZE : CARD_HEIGHT) * cardScale;
   
-  // Position on ring
+  let left, top;
+  
+  switch (anchor) {
+    case 'top-left':
+      left = starX;
+      top = starY;
+      break;
+    case 'top-right':
+      left = starX - width;
+      top = starY;
+      break;
+    case 'bottom-left':
+      left = starX;
+      top = starY - height;
+      break;
+    case 'bottom-right':
+      left = starX - width;
+      top = starY - height;
+      break;
+    default:
+      left = starX;
+      top = starY;
+  }
+  
+  return {
+    left,
+    top,
+    right: left + width,
+    bottom: top + height,
+    width,
+    height,
+    attachX: starX,
+    attachY: starY,
+    anchor
+  };
+}
+
+/**
+ * Get card bounds at a ring position (for multi-card stars)
+ */
+function getRingCardBounds(starX, starY, ringAngle, ringRadius, cardScale, isCompact = false) {
+  const width = (isCompact ? COMPACT_SIZE : CARD_WIDTH) * cardScale;
+  const height = (isCompact ? COMPACT_SIZE : CARD_HEIGHT) * cardScale;
+  
   const attachX = starX + Math.cos(ringAngle) * ringRadius;
   const attachY = starY + Math.sin(ringAngle) * ringRadius;
   
-  // Determine anchor based on ring position (card extends away from star)
-  let left, top;
+  let left, top, anchor;
   const normalizedAngle = ((ringAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
   
   if (normalizedAngle < Math.PI / 2) {
-    // Top-right quadrant: card extends right and down
     left = attachX;
     top = attachY;
+    anchor = 'top-left';
   } else if (normalizedAngle < Math.PI) {
-    // Top-left quadrant: card extends left and down
     left = attachX - width;
     top = attachY;
+    anchor = 'top-right';
   } else if (normalizedAngle < Math.PI * 1.5) {
-    // Bottom-left quadrant: card extends left and up
     left = attachX - width;
     top = attachY - height;
+    anchor = 'bottom-right';
   } else {
-    // Bottom-right quadrant: card extends right and up
     left = attachX;
     top = attachY - height;
+    anchor = 'bottom-left';
   }
   
   return {
@@ -96,14 +137,15 @@ function getCardBounds(starX, starY, ringAngle, ringRadius, cardScale, isCompact
     height,
     attachX,
     attachY,
-    angle: ringAngle
+    angle: ringAngle,
+    anchor
   };
 }
 
 /**
  * Check if two boxes overlap
  */
-function boxesOverlap(box1, box2, padding = 5) {
+function doBoxesOverlap(box1, box2, padding = 8) {
   return !(box1.right + padding < box2.left ||
            box1.left - padding > box2.right ||
            box1.bottom + padding < box2.top ||
@@ -113,12 +155,50 @@ function boxesOverlap(box1, box2, padding = 5) {
 /**
  * Check if a box overlaps with a star position
  */
-function boxOverlapsStar(box, starX, starY, starRadius = 15) {
+function doesBoxOverlapStar(box, starX, starY, starRadius = 20) {
   const closestX = Math.max(box.left, Math.min(starX, box.right));
   const closestY = Math.max(box.top, Math.min(starY, box.bottom));
   const distX = starX - closestX;
   const distY = starY - closestY;
   return (distX * distX + distY * distY) < (starRadius * starRadius);
+}
+
+/**
+ * Find best anchor for a single card that avoids other stars
+ */
+function findBestAnchorForSingle(starX, starY, otherStars, placedBounds, cardScale) {
+  const anchors = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+  let bestAnchor = 'top-left';
+  let bestScore = Infinity;
+  let bestBounds = null;
+  
+  for (const anchor of anchors) {
+    const bounds = getSingleCardBounds(starX, starY, anchor, cardScale);
+    let score = 0;
+    
+    for (const star of otherStars) {
+      if (Math.abs(star.x - starX) < 5 && Math.abs(star.y - starY) < 5) continue;
+      if (doesBoxOverlapStar(bounds, star.x, star.y)) {
+        score += 100;
+      }
+    }
+    
+    for (const placed of placedBounds) {
+      if (doBoxesOverlap(bounds, placed)) {
+        score += 50;
+      }
+    }
+    
+    if (score < bestScore) {
+      bestScore = score;
+      bestAnchor = anchor;
+      bestBounds = bounds;
+    }
+    
+    if (score === 0) break;
+  }
+  
+  return { anchor: bestAnchor, bounds: bestBounds, score: bestScore };
 }
 
 /**
@@ -131,7 +211,6 @@ function computeRingPositions(selectedCards, allCards, markerVisibility, worldSc
     return positions;
   }
   
-  // Get all star positions (for avoiding)
   const starPositions = [];
   const processedStars = new Set();
   
@@ -146,7 +225,6 @@ function computeRingPositions(selectedCards, allCards, markerVisibility, worldSc
     }
   }
   
-  // Group selected cards by their star
   const cardsByStarKey = {};
   for (const card of selectedCards) {
     const vis = markerVisibility[card.id];
@@ -163,88 +241,121 @@ function computeRingPositions(selectedCards, allCards, markerVisibility, worldSc
     cardsByStarKey[key].cards.push(card);
   }
   
-  // All placed card bounds (for collision detection)
   const placedBounds = [];
   
-  // Process each star group
-  for (const starKey of Object.keys(cardsByStarKey)) {
+  const sortedStarKeys = Object.keys(cardsByStarKey).sort((a, b) => {
+    return cardsByStarKey[a].cards.length - cardsByStarKey[b].cards.length;
+  });
+  
+  for (const starKey of sortedStarKeys) {
     const { starX, starY, cards } = cardsByStarKey[starKey];
-    const ringRadius = RING_RADIUS * worldScale;
     
-    // Distribute cards around the ring
-    const angleStep = (Math.PI * 2) / Math.max(cards.length, RING_POINTS);
-    const startAngle = -Math.PI / 2; // Start from top
-    
-    for (let i = 0; i < cards.length; i++) {
-      const card = cards[i];
-      let bestPosition = null;
-      let bestScale = 1.0;
-      let minOverlaps = Infinity;
+    if (cards.length === 1) {
+      const card = cards[0];
+      const { anchor, bounds, score } = findBestAnchorForSingle(
+        starX, starY, starPositions, placedBounds, 1.0
+      );
       
-      // Try different starting angles
-      for (let angleOffset = 0; angleOffset < RING_POINTS; angleOffset++) {
-        const baseAngle = startAngle + (i * angleStep) + (angleOffset * (Math.PI * 2 / RING_POINTS));
-        
-        // Try different scales
-        for (let scale = 1.0; scale >= MIN_SCALE; scale -= SCALE_STEP) {
-          const bounds = getCardBounds(starX, starY, baseAngle, ringRadius, scale);
-          
-          // Count overlaps
-          let overlaps = 0;
-          
-          // Check against other placed cards
-          for (const placed of placedBounds) {
-            if (boxesOverlap(bounds, placed)) {
-              overlaps++;
-            }
+      let finalScale = 1.0;
+      let finalBounds = bounds;
+      let finalAnchor = anchor;
+      
+      if (score > 0) {
+        for (let scale = 0.9; scale >= MIN_SCALE; scale -= SCALE_STEP) {
+          const result = findBestAnchorForSingle(
+            starX, starY, starPositions, placedBounds, scale
+          );
+          if (result.score < score) {
+            finalScale = scale;
+            finalBounds = result.bounds;
+            finalAnchor = result.anchor;
+            if (result.score === 0) break;
           }
-          
-          // Check against other stars (excluding own star)
-          for (const star of starPositions) {
-            if (Math.abs(star.x - starX) < 5 && Math.abs(star.y - starY) < 5) continue;
-            if (boxOverlapsStar(bounds, star.x, star.y)) {
-              overlaps += 2; // Stars are more important to avoid
-            }
-          }
-          
-          if (overlaps < minOverlaps) {
-            minOverlaps = overlaps;
-            bestPosition = bounds;
-            bestScale = scale;
-          }
-          
-          if (overlaps === 0) break; // Found perfect position
         }
-        
-        if (minOverlaps === 0) break; // Found perfect position
       }
       
-      if (bestPosition) {
-        positions[card.id] = {
-          x: bestPosition.attachX,
-          y: bestPosition.attachY,
-          angle: bestPosition.angle,
-          scale: bestScale,
-          starX,
-          starY
-        };
-        placedBounds.push(bestPosition);
+      positions[card.id] = {
+        x: starX,
+        y: starY,
+        angle: 0,
+        scale: finalScale,
+        starX,
+        starY,
+        anchor: finalAnchor,
+        isSingle: true
+      };
+      
+      if (finalBounds) {
+        placedBounds.push(finalBounds);
+      }
+    } else {
+      const ringRadius = RING_RADIUS * worldScale;
+      const numAngles = 16;
+      
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        let bestPosition = null;
+        let bestBounds = null;
+        let minScore = Infinity;
+        
+        for (let angleIdx = 0; angleIdx < numAngles; angleIdx++) {
+          const angle = (angleIdx / numAngles) * Math.PI * 2 - Math.PI / 2;
+          
+          for (let scale = 1.0; scale >= MIN_SCALE; scale -= SCALE_STEP) {
+            const bounds = getRingCardBounds(starX, starY, angle, ringRadius, scale);
+            let score = 0;
+            
+            for (const placed of placedBounds) {
+              if (doBoxesOverlap(bounds, placed)) {
+                score += 50;
+              }
+            }
+            
+            for (const star of starPositions) {
+              if (Math.abs(star.x - starX) < 5 && Math.abs(star.y - starY) < 5) continue;
+              if (doesBoxOverlapStar(bounds, star.x, star.y)) {
+                score += 100;
+              }
+            }
+            
+            const idealAngle = -Math.PI / 2 + (i / cards.length) * Math.PI * 2;
+            const angleDiff = Math.abs(angle - idealAngle);
+            score += angleDiff * 2;
+            
+            score += (1 - scale) * 20;
+            
+            if (score < minScore) {
+              minScore = score;
+              bestPosition = {
+                x: bounds.attachX,
+                y: bounds.attachY,
+                angle: angle,
+                scale: scale,
+                starX,
+                starY,
+                anchor: bounds.anchor,
+                isSingle: false
+              };
+              bestBounds = bounds;
+            }
+            
+            if (score < 5) break;
+          }
+          
+          if (minScore < 5) break;
+        }
+        
+        if (bestPosition) {
+          positions[card.id] = bestPosition;
+          if (bestBounds) {
+            placedBounds.push(bestBounds);
+          }
+        }
       }
     }
   }
   
   return positions;
-}
-
-/**
- * Get anchor based on ring angle
- */
-function getAnchorFromAngle(angle) {
-  const normalized = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-  if (normalized < Math.PI / 2) return 'top-left';
-  if (normalized < Math.PI) return 'top-right';
-  if (normalized < Math.PI * 1.5) return 'bottom-right';
-  return 'bottom-left';
 }
 
 
@@ -257,8 +368,6 @@ function App() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [markerVisibility, setMarkerVisibility] = useState({});
   const [visibleCardIds, setVisibleCardIds] = useState(null);
-  
-  // Store current card positions for smooth transitions
   const [cardPositions, setCardPositions] = useState({});
   
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -281,7 +390,6 @@ function App() {
   
   const autoRotateTimer = useRef(null);
 
-  // Calculate world scale from marker visibility
   const worldScale = useMemo(() => {
     const firstVis = Object.values(markerVisibility)[0];
     if (firstVis?.distance) {
@@ -290,7 +398,6 @@ function App() {
     return 1;
   }, [markerVisibility]);
 
-  // Compute positions whenever selection or visibility changes
   useEffect(() => {
     if (!cards || selectedCards.length === 0) {
       setCardPositions({});
@@ -460,7 +567,6 @@ function App() {
   const countryCount = cards ? new Set(cards.map(c => c.location?.split(',').pop()?.trim())).size : 0;
   const selectedCardObjects = cards ? cards.filter(c => selectedCards.includes(c.id)) : [];
 
-  // Calculate stagger indices for animation
   const staggerInfo = {};
   const cardsByStarKey = {};
   
@@ -522,7 +628,7 @@ function App() {
               card={card}
               visibilityData={markerVisibility}
               position={position}
-              anchor={position ? getAnchorFromAngle(position.angle) : 'top-left'}
+              anchor={position?.anchor || 'top-left'}
               onClose={handleClosePopup}
               onFocus={handleFocusCard}
               isFocused={focusedCard === card.id}
