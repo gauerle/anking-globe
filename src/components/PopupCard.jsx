@@ -6,14 +6,13 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 
 // Compact mode - just the square image
-const COMPACT_SIZE = 56; // Same as card image size
+const COMPACT_SIZE = 56;
 
-// Scale threshold for compact mode (higher = triggers sooner when zooming out)
-const COMPACT_THRESHOLD = 0.62;
+// Scale threshold for compact mode (lower = need to zoom out more to trigger)
+const COMPACT_THRESHOLD = 0.52;
 
 /**
  * Calculate card position based on anchor.
- * In compact mode, the card is just a square image.
  */
 function calculatePosition(anchor, starX, starY, isCompact) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -47,7 +46,7 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   // Clamp raw scale
   const rawScale = Math.max(0.5, Math.min(0.85, scale));
   
-  // Determine if compact mode (square image only when zoomed out)
+  // Determine if compact mode
   const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused && !isHovered;
   
   // Scale calculations
@@ -102,7 +101,6 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
           />
         </div>
         
-        {/* Text content - hidden in compact mode via CSS */}
         <div className="card-content">
           <p className="card-name">{card.name}</p>
           <p className="card-info">
@@ -116,7 +114,6 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
           </span>
         </div>
         
-        {/* Close button - hidden in compact mode via CSS */}
         <button 
           className="card-close-btn" 
           onClick={(e) => {

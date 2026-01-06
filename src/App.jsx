@@ -1,4 +1,4 @@
-console.log('APP VERSION 17 LOADED');
+console.log('APP VERSION 18 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -9,39 +9,29 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 import { useGroups } from './hooks/useGroups';
 
-// Card dimensions (must match PopupCard.jsx)
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
-
-// Simulation viewport
 const SIM_WIDTH = 800;
 const SIM_HEIGHT = 800;
 const GLOBE_RADIUS_SIM = 350;
+const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
 /**
- * Convert lat/lng to screen position using SPHERICAL ORTHOGRAPHIC projection
- * This simulates how points appear on a front-facing globe view
+ * Spherical orthographic projection
  */
 function latLngToScreen(lat, lng) {
-  // Convert to radians
   const latRad = (lat * Math.PI) / 180;
   const lngRad = (lng * Math.PI) / 180;
-  
-  // Orthographic projection (viewing from front, centered at lng=0)
-  // Adjust longitude to center the Americas (roughly -100°)
-  const centerLng = (-100 * Math.PI) / 180;
+  const centerLng = (-95 * Math.PI) / 180;
   const adjustedLng = lngRad - centerLng;
   
-  // Spherical to 2D orthographic
   const x = Math.cos(latRad) * Math.sin(adjustedLng);
   const y = Math.sin(latRad);
-  const z = Math.cos(latRad) * Math.cos(adjustedLng); // visibility check
   
-  // Convert to screen coordinates
   const screenX = SIM_WIDTH / 2 + x * GLOBE_RADIUS_SIM;
-  const screenY = SIM_HEIGHT / 2 - y * GLOBE_RADIUS_SIM; // flip Y
+  const screenY = SIM_HEIGHT / 2 - y * GLOBE_RADIUS_SIM;
   
-  return { x: screenX, y: screenY, visible: z > -0.2 }; // slightly behind is ok
+  return { x: screenX, y: screenY };
 }
 
 function getCardBounds(starX, starY, anchor) {
@@ -62,112 +52,193 @@ function getOverlapArea(box1, box2) {
   return xOverlap * yOverlap;
 }
 
-function getTotalOverlap(cardBounds, placedBounds) {
-  let total = 0;
-  for (const placed of placedBounds) {
-    total += getOverlapArea(cardBounds, placed);
+/**
+ * Calculate total pairwise overlap for a set of cards with given anchors
+ */
+function calculateTotalOverlap(cards, anchors, screenPositions) {
+  let totalOverlap = 0;
+  for (let i = 0; i < cards.length; i++) {
+    for (let j = i + 1; j < cards.length; j++) {
+      const bounds1 = getCardBounds(screenPositions[cards[i].id].x, screenPositions[cards[i].id].y, anchors[cards[i].id]);
+      const bounds2 = getCardBounds(screenPositions[cards[j].id].x, screenPositions[cards[j].id].y, anchors[cards[j].id]);
+      totalOverlap += getOverlapArea(bounds1, bounds2);
+    }
   }
-  return total;
+  return totalOverlap;
 }
 
 /**
- * Compute anchors using spherical orthographic projection
+ * Generate all possible anchor combinations for a cluster
+ */
+function* generateCombinations(cards, index = 0, current = {}) {
+  if (index === cards.length) {
+    yield { ...current };
+    return;
+  }
+  for (const corner of CORNERS) {
+    current[cards[index].id] = corner;
+    yield* generateCombinations(cards, index + 1, current);
+  }
+}
+
+/**
+ * Find optimal anchors for a cluster by trying all combinations
+ */
+function optimizeCluster(cluster, screenPositions, existingAnchors = {}) {
+  if (cluster.length === 0) return {};
+  
+  if (cluster.length === 1) {
+    // Single card - use hemisphere-based default
+    const card = cluster[0];
+    return { [card.id]: card.lat > 0 ? (card.lng < -50 ? 'top-left' : 'top-right') : (card.lng < -50 ? 'bottom-left' : 'bottom-right') };
+  }
+  
+  // For clusters up to 6 cards, try all combinations (4^6 = 4096)
+  if (cluster.length <= 6) {
+    let bestAnchors = null;
+    let bestOverlap = Infinity;
+    
+    for (const combination of generateCombinations(cluster)) {
+      // Merge with existing anchors for overlap calculation
+      const testAnchors = { ...existingAnchors, ...combination };
+      const overlap = calculateTotalOverlap(cluster, testAnchors, screenPositions);
+      
+      if (overlap < bestOverlap) {
+        bestOverlap = overlap;
+        bestAnchors = { ...combination };
+      }
+      
+      if (overlap === 0) break; // Perfect solution found
+    }
+    
+    return bestAnchors;
+  }
+  
+  // For larger clusters, use iterative improvement
+  const anchors = {};
+  
+  // Initial assignment based on position
+  for (const card of cluster) {
+    const pos = screenPositions[card.id];
+    const centerX = SIM_WIDTH / 2;
+    const centerY = SIM_HEIGHT / 2;
+    
+    if (pos.x < centerX && pos.y < centerY) anchors[card.id] = 'bottom-right';
+    else if (pos.x >= centerX && pos.y < centerY) anchors[card.id] = 'bottom-left';
+    else if (pos.x < centerX && pos.y >= centerY) anchors[card.id] = 'top-right';
+    else anchors[card.id] = 'top-left';
+  }
+  
+  // Iterative improvement
+  let improved = true;
+  let iterations = 0;
+  while (improved && iterations < 10) {
+    improved = false;
+    iterations++;
+    
+    for (const card of cluster) {
+      const currentAnchor = anchors[card.id];
+      const currentOverlap = calculateTotalOverlap(cluster, anchors, screenPositions);
+      
+      for (const corner of CORNERS) {
+        if (corner === currentAnchor) continue;
+        
+        anchors[card.id] = corner;
+        const newOverlap = calculateTotalOverlap(cluster, anchors, screenPositions);
+        
+        if (newOverlap < currentOverlap) {
+          improved = true;
+          break;
+        } else {
+          anchors[card.id] = currentAnchor;
+        }
+      }
+    }
+  }
+  
+  return anchors;
+}
+
+/**
+ * Find clusters of nearby cards
+ */
+function findClusters(cards, screenPositions, threshold = 250) {
+  const clusters = [];
+  const assigned = new Set();
+  
+  for (const card of cards) {
+    if (assigned.has(card.id)) continue;
+    
+    // BFS to find all connected cards
+    const cluster = [];
+    const queue = [card];
+    assigned.add(card.id);
+    
+    while (queue.length > 0) {
+      const current = queue.shift();
+      cluster.push(current);
+      
+      const currentPos = screenPositions[current.id];
+      
+      for (const other of cards) {
+        if (assigned.has(other.id)) continue;
+        
+        const otherPos = screenPositions[other.id];
+        const dist = Math.sqrt(
+          Math.pow(currentPos.x - otherPos.x, 2) + 
+          Math.pow(currentPos.y - otherPos.y, 2)
+        );
+        
+        if (dist < threshold) {
+          assigned.add(other.id);
+          queue.push(other);
+        }
+      }
+    }
+    
+    clusters.push(cluster);
+  }
+  
+  return clusters;
+}
+
+/**
+ * Main anchor computation using cluster-based optimization
  */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
-  const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
-  const anchors = {};
-  const placedBounds = [];
-  
-  // Convert all cards to screen positions using spherical projection
-  const cardScreenPos = {};
+  // Convert to screen positions
+  const screenPositions = {};
   for (const card of cards) {
-    cardScreenPos[card.id] = latLngToScreen(card.lat, card.lng);
+    screenPositions[card.id] = latLngToScreen(card.lat, card.lng);
   }
   
-  // Sort by latitude (process from north to south)
-  const sortedCards = [...cards].sort((a, b) => b.lat - a.lat);
+  // Find clusters
+  const clusters = findClusters(cards, screenPositions, 280);
   
-  // First pass: greedy assignment
-  for (const card of sortedCards) {
-    const starPos = cardScreenPos[card.id];
-    let bestAnchor = 'top-left';
-    let bestOverlap = Infinity;
-    
-    for (const anchor of CORNERS) {
-      const bounds = getCardBounds(starPos.x, starPos.y, anchor);
-      const overlap = getTotalOverlap(bounds, placedBounds);
-      if (overlap < bestOverlap) {
-        bestOverlap = overlap;
-        bestAnchor = anchor;
-      }
-      if (overlap === 0) break;
-    }
-    
-    anchors[card.id] = bestAnchor;
-    placedBounds.push(getCardBounds(starPos.x, starPos.y, bestAnchor));
+  // Optimize each cluster
+  const anchors = {};
+  
+  // Sort clusters by size (process larger clusters first)
+  clusters.sort((a, b) => b.length - a.length);
+  
+  for (const cluster of clusters) {
+    const clusterAnchors = optimizeCluster(cluster, screenPositions, anchors);
+    Object.assign(anchors, clusterAnchors);
   }
   
-  // Second pass: try to improve overlapping cards
-  for (const card of sortedCards) {
-    const starPos = cardScreenPos[card.id];
-    const currentAnchor = anchors[card.id];
-    const currentBounds = getCardBounds(starPos.x, starPos.y, currentAnchor);
-    
-    const otherBounds = sortedCards
-      .filter(c => c.id !== card.id)
-      .map(c => getCardBounds(cardScreenPos[c.id].x, cardScreenPos[c.id].y, anchors[c.id]));
-    
-    const currentOverlap = getTotalOverlap(currentBounds, otherBounds);
-    
-    if (currentOverlap > 0) {
-      let bestAnchor = currentAnchor;
-      let bestOverlap = currentOverlap;
-      
-      for (const anchor of CORNERS) {
-        if (anchor === currentAnchor) continue;
-        const newBounds = getCardBounds(starPos.x, starPos.y, anchor);
-        const newOverlap = getTotalOverlap(newBounds, otherBounds);
-        if (newOverlap < bestOverlap) {
-          bestOverlap = newOverlap;
-          bestAnchor = anchor;
-        }
-      }
-      
-      anchors[card.id] = bestAnchor;
-    }
-  }
-  
-  // Third pass: one more iteration for any remaining conflicts
-  for (const card of sortedCards) {
-    const starPos = cardScreenPos[card.id];
-    const currentAnchor = anchors[card.id];
-    
-    const otherBounds = sortedCards
-      .filter(c => c.id !== card.id)
-      .map(c => getCardBounds(cardScreenPos[c.id].x, cardScreenPos[c.id].y, anchors[c.id]));
-    
-    const currentBounds = getCardBounds(starPos.x, starPos.y, currentAnchor);
-    const currentOverlap = getTotalOverlap(currentBounds, otherBounds);
-    
-    if (currentOverlap > 0) {
-      for (const anchor of CORNERS) {
-        const newBounds = getCardBounds(starPos.x, starPos.y, anchor);
-        const newOverlap = getTotalOverlap(newBounds, otherBounds);
-        if (newOverlap < currentOverlap) {
-          anchors[card.id] = anchor;
-          break;
-        }
-      }
-    }
-  }
-  
-  console.log('Card anchors (spherical projection):');
-  for (const card of sortedCards) {
-    const pos = cardScreenPos[card.id];
+  // Log results
+  console.log('Card anchors (cluster optimization):');
+  console.log(`  Found ${clusters.length} clusters: ${clusters.map(c => c.length).join(', ')} cards`);
+  for (const card of cards) {
+    const pos = screenPositions[card.id];
     console.log(`  ${card.name}: "${anchors[card.id]}" at (${pos.x.toFixed(0)}, ${pos.y.toFixed(0)})`);
   }
+  
+  // Calculate and log total overlap
+  const totalOverlap = calculateTotalOverlap(cards, anchors, screenPositions);
+  console.log(`  Total overlap: ${totalOverlap.toFixed(0)} sq px`);
   
   return anchors;
 }
@@ -277,7 +348,6 @@ function App() {
 
   const handleClosePopup = useCallback((cardId) => {
     setSelectedCards(prev => prev.filter(id => id !== cardId));
-    // Don't clear focus - prevents zoom out animation
   }, []);
 
   const handleFocusCard = useCallback((id) => {
