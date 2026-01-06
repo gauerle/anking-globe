@@ -5,8 +5,17 @@ const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
-// Much higher threshold - cards become photos very quickly when zooming out
-const COMPACT_THRESHOLD = 0.86;
+// DISTANCE-BASED THRESHOLD (linear, more intuitive!)
+// Cards become compact when camera is farther than this distance
+// 
+// Guide:
+//   180 = cards stay full almost always (very close zoom required)
+//   220 = cards compact at medium zoom  
+//   280 = cards compact fairly quickly
+//   320 = cards compact very quickly
+//   400 = cards are almost always compact
+//
+const COMPACT_DISTANCE = 280;
 
 function calculatePosition(anchor, starX, starY, isCompact) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -39,8 +48,15 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   
   const rawScale = Math.max(0.5, Math.min(0.85, scale));
   
-  // Compact mode only depends on scale and focus, NOT hover
-  const isCompact = rawScale < COMPACT_THRESHOLD && !isFocused;
+  // Convert scale back to approximate distance
+  // (scale = 220 / distance, so distance = 220 / scale)
+  const approxDistance = 220 / rawScale;
+  
+  // Compact when distance exceeds threshold (and not focused)
+  const isCompact = approxDistance > COMPACT_DISTANCE && !isFocused;
+  
+  // Debug: uncomment to see current distance
+  console.log(`${card.name}: dist=${approxDistance.toFixed(0)}, compact=${isCompact}`);
   
   const baseScale = isCompact ? 0.85 : 0.75;
   const minScale = isCompact ? 0.55 : 0.5;
@@ -59,7 +75,6 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
 
   const transformOrigin = `${pos.originX} ${pos.originY}`;
   
-  // Build info text
   const infoText = [card.title, card.university].filter(Boolean).join(' · ');
 
   return (
