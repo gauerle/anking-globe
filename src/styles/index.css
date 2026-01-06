@@ -195,7 +195,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 6px 12px;
+  padding: 6px 10px;
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -207,21 +207,53 @@ body {
 .card-name {
   font-family: 'Reddit Sans', sans-serif;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   color: #111629;
   margin: 0;
   white-space: nowrap;
-  /* NO ellipsis - full text shown */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.card-info {
-  font-family: 'Sora', sans-serif;
-  font-size: 11px;
-  color: #6b7280;
-  margin: 0;
+/* Marquee container */
+.marquee-container {
+  overflow: hidden;
   white-space: nowrap;
+  position: relative;
+}
+
+.marquee-container.card-info {
+  font-family: 'Sora', sans-serif;
+  font-size: 10px;
+  color: #6b7280;
   line-height: 1.4;
-  /* NO ellipsis - full text shown */
+}
+
+.marquee-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.marquee-text.scrolling {
+  animation: marquee 8s linear infinite;
+}
+
+.marquee-spacer {
+  opacity: 0.5;
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+/* Pause marquee on hover */
+.popup-card:hover .marquee-text.scrolling {
+  animation-play-state: paused;
 }
 
 .card-location {
@@ -229,11 +261,9 @@ body {
   align-items: center;
   gap: 3px;
   font-family: 'Sora', sans-serif;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--accent-purple);
   margin-top: 2px;
-  white-space: nowrap;
-  /* NO ellipsis - full text shown */
 }
 
 .card-location svg {
@@ -242,14 +272,15 @@ body {
 
 .card-location span {
   white-space: nowrap;
-  /* NO ellipsis - full text shown */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-close-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  width: 20px;
   flex-shrink: 0;
   background: #f9fafb;
   border: none;

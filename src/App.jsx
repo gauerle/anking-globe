@@ -1,4 +1,4 @@
-console.log('APP VERSION 20 LOADED');
+console.log('APP VERSION 21 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -9,8 +9,8 @@ import AdminPage from './components/AdminPage';
 import { useCards } from './hooks/useCards';
 import { useGroups } from './hooks/useGroups';
 
-// Wider cards to fit full text
-const CARD_WIDTH = 320;
+// Back to original card width
+const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
@@ -18,20 +18,18 @@ const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
  * Get the anchor that extends the card in a given direction
  */
 function getAnchorExtendingToward(awayX, awayY) {
-  if (awayX >= 0 && awayY >= 0) return 'top-left';      // extend SE
-  if (awayX < 0 && awayY >= 0) return 'top-right';      // extend SW
-  if (awayX >= 0 && awayY < 0) return 'bottom-left';    // extend NE
-  return 'bottom-right';                                 // extend NW
+  if (awayX >= 0 && awayY >= 0) return 'top-left';
+  if (awayX < 0 && awayY >= 0) return 'top-right';
+  if (awayX >= 0 && awayY < 0) return 'bottom-left';
+  return 'bottom-right';
 }
 
 /**
  * Calculate card bounds given star position and anchor
  */
 function getCardBounds(lat, lng, anchor) {
-  // Use lat/lng directly as pseudo-screen coordinates for overlap detection
-  // Scale to approximate screen proportions
-  const starX = (lng + 180) * 4;  // 0 to 1440
-  const starY = (90 - lat) * 4;   // 0 to 720
+  const starX = (lng + 180) * 4;
+  const starY = (90 - lat) * 4;
   
   let left, top;
   switch (anchor) {
@@ -136,7 +134,6 @@ function initialAssignment(cards) {
       continue;
     }
     
-    // Calculate centroid
     let centroidLat = 0, centroidLng = 0;
     for (const card of cluster) {
       centroidLat += card.lat;
@@ -145,7 +142,6 @@ function initialAssignment(cards) {
     centroidLat /= cluster.length;
     centroidLng /= cluster.length;
     
-    // Each card extends away from centroid
     for (const card of cluster) {
       const dx = card.lng - centroidLng;
       const dy = card.lat - centroidLat;
@@ -160,9 +156,9 @@ function initialAssignment(cards) {
 }
 
 /**
- * ROUND 2+: Iterative improvement - for each card with overlap, try other anchors
+ * ROUND 2: Iterative single-card improvement
  */
-function improveAnchors(cards, anchors, maxIterations = 5) {
+function improveAnchors(cards, anchors, maxIterations = 10) {
   let improved = true;
   let iteration = 0;
   
@@ -170,7 +166,6 @@ function improveAnchors(cards, anchors, maxIterations = 5) {
     improved = false;
     iteration++;
     
-    // Sort cards by their current overlap (worst first)
     const cardsByOverlap = [...cards].sort((a, b) => {
       return calculateCardOverlap(b, cards, anchors) - calculateCardOverlap(a, cards, anchors);
     });
@@ -183,7 +178,6 @@ function improveAnchors(cards, anchors, maxIterations = 5) {
       let bestAnchor = currentAnchor;
       let bestOverlap = currentOverlap;
       
-      // Try all other anchors
       for (const anchor of CORNERS) {
         if (anchor === currentAnchor) continue;
         
@@ -201,7 +195,7 @@ function improveAnchors(cards, anchors, maxIterations = 5) {
     }
   }
   
-  return { anchors, iterations: iteration };
+  return iteration;
 }
 
 /**
@@ -219,14 +213,12 @@ function pairwiseOptimization(cards, anchors) {
         const card1 = cards[i];
         const card2 = cards[j];
         
-        // Current overlap between these two
         const bounds1 = getCardBounds(card1.lat, card1.lng, anchors[card1.id]);
         const bounds2 = getCardBounds(card2.lat, card2.lng, anchors[card2.id]);
         const currentPairOverlap = getOverlapArea(bounds1, bounds2);
         
         if (currentPairOverlap === 0) continue;
         
-        // Try swapping their anchors
         const anchor1 = anchors[card1.id];
         const anchor2 = anchors[card2.id];
         
@@ -237,7 +229,6 @@ function pairwiseOptimization(cards, anchors) {
         const newBounds2 = getCardBounds(card2.lat, card2.lng, anchors[card2.id]);
         const newPairOverlap = getOverlapArea(newBounds1, newBounds2);
         
-        // Also check total overlap didn't get worse
         const oldTotal = calculateTotalOverlap(cards, { ...anchors, [card1.id]: anchor1, [card2.id]: anchor2 });
         const newTotal = calculateTotalOverlap(cards, anchors);
         
@@ -245,7 +236,6 @@ function pairwiseOptimization(cards, anchors) {
           improved = true;
           swaps++;
         } else {
-          // Revert
           anchors[card1.id] = anchor1;
           anchors[card2.id] = anchor2;
         }
@@ -253,37 +243,162 @@ function pairwiseOptimization(cards, anchors) {
     }
   }
   
-  return { anchors, swaps };
+  return swaps;
 }
 
 /**
- * Main anchor computation with multiple rounds
+ * ROUND 4: Exhaustive search for remaining overlapping cards
+ */
+function exhaustiveFixRemaining(cards, anchors) {
+  let fixes = 0;
+  
+  // Find cards that still have overlap
+  const overlappingCards = cards.filter(card => calculateCardOverlap(card, cards, anchors) > 0);
+  
+  for (const card of overlappingCards) {
+    const currentOverlap = calculateCardOverlap(card, cards, anchors);
+    let bestAnchor = anchors[card.id];
+    let bestTotalOverlap = calculateTotalOverlap(cards, anchors);
+    
+    // Try each anchor and pick the one that minimizes TOTAL overlap
+    for (const anchor of CORNERS) {
+      anchors[card.id] = anchor;
+      const newTotal = calculateTotalOverlap(cards, anchors);
+      
+      if (newTotal < bestTotalOverlap) {
+        bestTotalOverlap = newTotal;
+        bestAnchor = anchor;
+        fixes++;
+      }
+    }
+    
+    anchors[card.id] = bestAnchor;
+  }
+  
+  return fixes;
+}
+
+/**
+ * ROUND 5: Global hill climbing with random restarts
+ */
+function globalOptimization(cards, anchors) {
+  const originalTotal = calculateTotalOverlap(cards, anchors);
+  if (originalTotal === 0) return 0;
+  
+  let bestAnchors = { ...anchors };
+  let bestTotal = originalTotal;
+  let improvements = 0;
+  
+  // Try different starting configurations
+  for (let restart = 0; restart < 3; restart++) {
+    const testAnchors = { ...anchors };
+    
+    // Randomly perturb some assignments
+    const cardsToPerturb = cards.filter(() => Math.random() < 0.3);
+    for (const card of cardsToPerturb) {
+      testAnchors[card.id] = CORNERS[Math.floor(Math.random() * 4)];
+    }
+    
+    // Run improvement rounds on this configuration
+    improveAnchors(cards, testAnchors, 5);
+    pairwiseOptimization(cards, testAnchors);
+    
+    const newTotal = calculateTotalOverlap(cards, testAnchors);
+    if (newTotal < bestTotal) {
+      bestTotal = newTotal;
+      bestAnchors = { ...testAnchors };
+      improvements++;
+    }
+  }
+  
+  // Copy best back
+  Object.assign(anchors, bestAnchors);
+  return improvements;
+}
+
+/**
+ * ROUND 6: Final local search - try all combinations for small overlapping groups
+ */
+function finalLocalSearch(cards, anchors) {
+  const overlappingCards = cards.filter(card => calculateCardOverlap(card, cards, anchors) > 0);
+  
+  if (overlappingCards.length === 0 || overlappingCards.length > 5) {
+    return 0;
+  }
+  
+  // Try all combinations for the overlapping subset
+  let bestTotal = calculateTotalOverlap(cards, anchors);
+  let bestConfig = overlappingCards.map(c => anchors[c.id]);
+  let improvements = 0;
+  
+  const numCombinations = Math.pow(4, overlappingCards.length);
+  
+  for (let i = 0; i < numCombinations; i++) {
+    let idx = i;
+    for (const card of overlappingCards) {
+      anchors[card.id] = CORNERS[idx % 4];
+      idx = Math.floor(idx / 4);
+    }
+    
+    const total = calculateTotalOverlap(cards, anchors);
+    if (total < bestTotal) {
+      bestTotal = total;
+      bestConfig = overlappingCards.map(c => anchors[c.id]);
+      improvements++;
+    }
+  }
+  
+  // Apply best config
+  overlappingCards.forEach((card, i) => {
+    anchors[card.id] = bestConfig[i];
+  });
+  
+  return improvements;
+}
+
+/**
+ * Main anchor computation with refined multi-round optimization
  */
 function computeCardAnchors(cards) {
   if (!cards || cards.length === 0) return {};
   
-  console.log('=== Computing card anchors (multi-round) ===');
+  console.log('=== Computing card anchors (refined multi-round) ===');
   
-  // Round 1: Initial spread-from-centroid assignment
+  // Round 1: Initial spread-from-centroid
   let anchors = initialAssignment(cards);
-  let overlap1 = calculateTotalOverlap(cards, anchors);
-  console.log(`Round 1 (initial): total overlap = ${overlap1.toFixed(0)}`);
+  let overlap = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 1 (initial): overlap = ${overlap.toFixed(0)}`);
   
   // Round 2: Iterative single-card improvement
-  const { iterations } = improveAnchors(cards, anchors, 10);
-  let overlap2 = calculateTotalOverlap(cards, anchors);
-  console.log(`Round 2 (${iterations} iterations): total overlap = ${overlap2.toFixed(0)}`);
+  const iterations = improveAnchors(cards, anchors, 15);
+  overlap = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 2 (${iterations} iters): overlap = ${overlap.toFixed(0)}`);
   
-  // Round 3: Pairwise swap optimization
-  const { swaps } = pairwiseOptimization(cards, anchors);
-  let overlap3 = calculateTotalOverlap(cards, anchors);
-  console.log(`Round 3 (${swaps} swaps): total overlap = ${overlap3.toFixed(0)}`);
+  // Round 3: Pairwise swap
+  const swaps = pairwiseOptimization(cards, anchors);
+  overlap = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 3 (${swaps} swaps): overlap = ${overlap.toFixed(0)}`);
   
-  // Log final assignments
+  // Round 4: Exhaustive fix for remaining
+  const fixes = exhaustiveFixRemaining(cards, anchors);
+  overlap = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 4 (${fixes} fixes): overlap = ${overlap.toFixed(0)}`);
+  
+  // Round 5: Global optimization with restarts
+  const globalImprovements = globalOptimization(cards, anchors);
+  overlap = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 5 (${globalImprovements} global): overlap = ${overlap.toFixed(0)}`);
+  
+  // Round 6: Final local search
+  const localFixes = finalLocalSearch(cards, anchors);
+  overlap = calculateTotalOverlap(cards, anchors);
+  console.log(`Round 6 (${localFixes} local): overlap = ${overlap.toFixed(0)}`);
+  
+  // Log final
   console.log('Final anchors:');
   for (const card of cards) {
     const cardOverlap = calculateCardOverlap(card, cards, anchors);
-    console.log(`  ${card.name}: "${anchors[card.id]}"${cardOverlap > 0 ? ` (overlap: ${cardOverlap.toFixed(0)})` : ''}`);
+    console.log(`  ${card.name}: "${anchors[card.id]}"${cardOverlap > 0 ? ` ⚠️ overlap: ${cardOverlap.toFixed(0)}` : ' ✓'}`);
   }
   
   return anchors;
