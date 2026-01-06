@@ -924,33 +924,9 @@ function Globe({ cards, selectedCards, autoRotate, onMarkerClick, onMarkerVisibi
         
         return () => { cancelled = true; };
       }
-    } else if (savedCameraPosition.current) {
-      // Restore camera position
-      const startPos = cameraRef.current.position.clone();
-      const targetPos = savedCameraPosition.current;
-      const duration = 600;
-      const startTime = Date.now();
-      
-      savedCameraPosition.current = null;
-      
-      let cancelled = false;
-      
-      const animateZoom = () => {
-        if (cancelled) return;
-        
-        const elapsed = Date.now() - startTime;
-        const t = Math.min(elapsed / duration, 1);
-        const easeT = 1 - Math.pow(1 - t, 3);
-        
-        cameraRef.current.position.lerpVectors(startPos, targetPos, easeT);
-        controlsRef.current.update();
-        
-        if (t < 1) requestAnimationFrame(animateZoom);
-      };
-      animateZoom();
-      
-      return () => { cancelled = true; };
-    }
+    } else {
+     savedCameraPosition.current = null;
+   }
   }, [focusCardId]);
 
   // Detect rotation attempt to unfocus

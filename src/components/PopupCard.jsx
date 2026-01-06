@@ -1,16 +1,12 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import { getImageUrl } from '../utils/api';
 
-// Back to original card width
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
 
-// Higher threshold - cards collapse sooner when zooming out
-const COMPACT_THRESHOLD = 0.78;
-
-// Max width for text before marquee activates
-const TEXT_MAX_WIDTH = 130;
+// Higher threshold - cards collapse very soon when zooming out
+const COMPACT_THRESHOLD = 0.85;
 
 function calculatePosition(anchor, starX, starY, isCompact) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
@@ -31,9 +27,9 @@ function calculatePosition(anchor, starX, starY, isCompact) {
 }
 
 /**
- * Marquee text component - scrolls if text overflows
+ * Marquee text component - scrolls only on hover if text overflows
  */
-function MarqueeText({ text, className }) {
+function MarqueeText({ text, className, isHovered }) {
   const containerRef = useRef(null);
   const textRef = useRef(null);
   const [needsMarquee, setNeedsMarquee] = useState(false);
@@ -46,15 +42,17 @@ function MarqueeText({ text, className }) {
     }
   }, [text]);
   
+  const shouldScroll = needsMarquee && isHovered;
+  
   return (
     <div ref={containerRef} className={`marquee-container ${className || ''}`}>
       <span 
         ref={textRef} 
-        className={`marquee-text ${needsMarquee ? 'scrolling' : ''}`}
+        className={`marquee-text ${shouldScroll ? 'scrolling' : ''}`}
       >
         {text}
-        {needsMarquee && <span className="marquee-spacer">&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;</span>}
-        {needsMarquee && text}
+        {shouldScroll && <span className="marquee-spacer">&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;</span>}
+        {shouldScroll && text}
       </span>
     </div>
   );
@@ -76,9 +74,9 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
   
   const baseScale = isCompact ? 0.85 : 0.75;
   const minScale = isCompact ? 0.55 : 0.5;
-  const maxScale = isCompact ? 1.0 : 0.9;
-  const focusBoost = isFocused ? 1.2 : 1;
-  const hoverBoost = isHovered ? 1.15 : 1;
+  const maxScale = isCompact ? 1.0 : 0.95;
+  const focusBoost = isFocused ? 1.3 : 1;  // Increased to 1.3
+  const hoverBoost = isHovered && !isFocused ? 1.15 : 1;
   
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
@@ -128,13 +126,13 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, onClos
         
         <div className="card-content">
           <p className="card-name">{card.name}</p>
-          <MarqueeText text={infoText} className="card-info" />
-          <span className="card-location">
+          <MarqueeText text={infoText} className="card-info" isHovered={isHovered} />
+          <div className="card-location">
             <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
             </svg>
-            <span>{card.location}</span>
-          </span>
+            <MarqueeText text={card.location} className="card-location-text" isHovered={isHovered} />
+          </div>
         </div>
         
         <button 

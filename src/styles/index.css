@@ -220,6 +220,8 @@ body {
   overflow: hidden;
   white-space: nowrap;
   position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
 .marquee-container.card-info {
@@ -229,13 +231,20 @@ body {
   line-height: 1.4;
 }
 
+.marquee-container.card-location-text {
+  font-family: 'Sora', sans-serif;
+  font-size: 10px;
+  color: var(--accent-purple);
+}
+
 .marquee-text {
   display: inline-block;
   white-space: nowrap;
 }
 
+/* Only scroll when .scrolling class is added (on hover) */
 .marquee-text.scrolling {
-  animation: marquee 8s linear infinite;
+  animation: marquee 6s linear infinite;
 }
 
 .marquee-spacer {
@@ -251,29 +260,17 @@ body {
   }
 }
 
-/* Pause marquee on hover */
-.popup-card:hover .marquee-text.scrolling {
-  animation-play-state: paused;
-}
-
 .card-location {
   display: flex;
   align-items: center;
   gap: 3px;
-  font-family: 'Sora', sans-serif;
-  font-size: 10px;
-  color: var(--accent-purple);
   margin-top: 2px;
+  min-width: 0;
 }
 
 .card-location svg {
   flex-shrink: 0;
-}
-
-.card-location span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--accent-purple);
 }
 
 .card-close-btn {
