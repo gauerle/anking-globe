@@ -1,4 +1,4 @@
-console.log('APP VERSION 28 LOADED');
+console.log('APP VERSION 29 LOADED');
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Globe from './components/Globe';
@@ -11,68 +11,59 @@ import { useGroups } from './hooks/useGroups';
 
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
-const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
-
-// Fuzzy offset for cards sharing the same star (in pixels)
-const FUZZY_OFFSET = 15;
+const ANCHOR_RADIUS = 8; // Distance from star center to card corner
 
 /**
- * Group cards that share the same location (or very close)
+ * Convert lat/lng to screen coordinates (equirectangular projection)
  */
-function groupCardsByLocation(cards, threshold = 0.5) {
-  const groups = [];
-  const assigned = new Set();
-  
-  for (const card of cards) {
-    if (assigned.has(card.id)) continue;
-    
-    const group = [card];
-    assigned.add(card.id);
-    
-    for (const other of cards) {
-      if (assigned.has(other.id)) continue;
-      
-      const latDiff = Math.abs(card.lat - other.lat);
-      const lngDiff = Math.abs(card.lng - other.lng);
-      
-      if (latDiff < threshold && lngDiff < threshold) {
-        group.push(other);
-        assigned.add(other.id);
-      }
-    }
-    
-    groups.push(group);
-  }
-  
-  return groups;
+function latLngToScreen(lat, lng) {
+  const x = (lng + 180) * 4;
+  const y = (90 - lat) * 4;
+  return { x, y };
 }
 
 /**
- * Get the anchor that extends the card in a given direction
+ * Get card bounds given star screen position and angle
+ * Card corner sits on circumference at angle, card extends outward
  */
-function getAnchorExtendingToward(awayX, awayY) {
-  if (awayX >= 0 && awayY >= 0) return 'top-left';
-  if (awayX < 0 && awayY >= 0) return 'top-right';
-  if (awayX >= 0 && awayY < 0) return 'bottom-left';
-  return 'bottom-right';
-}
-
-/**
- * Calculate card bounds given star position and anchor
- */
-function getCardBounds(lat, lng, anchor) {
-  const starX = (lng + 180) * 4;
-  const starY = (90 - lat) * 4;
+function getCardBoundsFromAngle(starX, starY, angleDeg, radius = ANCHOR_RADIUS) {
+  const angleRad = angleDeg * Math.PI / 180;
   
+  // Anchor point on circumference (note: screen Y is inverted)
+  const anchorX = starX + radius * Math.cos(angleRad);
+  const anchorY = starY - radius * Math.sin(angleRad);
+  
+  // Determine card position based on angle quadrant
+  // Card extends AWAY from star center
   let left, top;
-  switch (anchor) {
-    case 'top-left': left = starX; top = starY; break;
-    case 'top-right': left = starX - CARD_WIDTH; top = starY; break;
-    case 'bottom-left': left = starX; top = starY - CARD_HEIGHT; break;
-    case 'bottom-right': left = starX - CARD_WIDTH; top = starY - CARD_HEIGHT; break;
-    default: left = starX; top = starY;
+  const normalizedAngle = ((angleDeg % 360) + 360) % 360;
+  
+  if (normalizedAngle >= 315 || normalizedAngle < 45) {
+    // Right side: card's left edge at anchor
+    left = anchorX;
+    top = anchorY - CARD_HEIGHT / 2;
+  } else if (normalizedAngle >= 45 && normalizedAngle < 135) {
+    // Top side: card's bottom edge at anchor
+    left = anchorX - CARD_WIDTH / 2;
+    top = anchorY - CARD_HEIGHT;
+  } else if (normalizedAngle >= 135 && normalizedAngle < 225) {
+    // Left side: card's right edge at anchor
+    left = anchorX - CARD_WIDTH;
+    top = anchorY - CARD_HEIGHT / 2;
+  } else {
+    // Bottom side: card's top edge at anchor
+    left = anchorX - CARD_WIDTH / 2;
+    top = anchorY;
   }
-  return { left, top, right: left + CARD_WIDTH, bottom: top + CARD_HEIGHT };
+  
+  return {
+    left,
+    top,
+    right: left + CARD_WIDTH,
+    bottom: top + CARD_HEIGHT,
+    anchorX,
+    anchorY
+  };
 }
 
 /**
@@ -85,14 +76,39 @@ function getOverlapArea(box1, box2) {
 }
 
 /**
- * Calculate total pairwise overlap for all cards
+ * Calculate overlap for one card against all others
  */
-function calculateTotalOverlap(cards, anchors) {
+function calculateCardOverlap(cardIndex, angle, cards, angles, radius) {
+  const card = cards[cardIndex];
+  const { x: starX, y: starY } = latLngToScreen(card.lat, card.lng);
+  const bounds = getCardBoundsFromAngle(starX, starY, angle, radius);
+  
+  let totalOverlap = 0;
+  
+  for (let i = 0; i < cards.length; i++) {
+    if (i === cardIndex) continue;
+    
+    const other = cards[i];
+    const { x: otherX, y: otherY } = latLngToScreen(other.lat, other.lng);
+    const otherBounds = getCardBoundsFromAngle(otherX, otherY, angles[i], radius);
+    
+    totalOverlap += getOverlapArea(bounds, otherBounds);
+  }
+  
+  return totalOverlap;
+}
+
+/**
+ * Calculate total pairwise overlap
+ */
+function calculateTotalOverlap(cards, angles, radius) {
   let total = 0;
   for (let i = 0; i < cards.length; i++) {
     for (let j = i + 1; j < cards.length; j++) {
-      const bounds1 = getCardBounds(cards[i].lat, cards[i].lng, anchors[cards[i].id]);
-      const bounds2 = getCardBounds(cards[j].lat, cards[j].lng, anchors[cards[j].id]);
+      const { x: x1, y: y1 } = latLngToScreen(cards[i].lat, cards[i].lng);
+      const { x: x2, y: y2 } = latLngToScreen(cards[j].lat, cards[j].lng);
+      const bounds1 = getCardBoundsFromAngle(x1, y1, angles[i], radius);
+      const bounds2 = getCardBoundsFromAngle(x2, y2, angles[j], radius);
       total += getOverlapArea(bounds1, bounds2);
     }
   }
@@ -100,245 +116,167 @@ function calculateTotalOverlap(cards, anchors) {
 }
 
 /**
- * Calculate overlap for a single card against all others
+ * Get initial angle based on card's position (point away from globe center)
  */
-function calculateCardOverlap(card, cards, anchors) {
-  let total = 0;
-  const bounds1 = getCardBounds(card.lat, card.lng, anchors[card.id]);
-  for (const other of cards) {
-    if (other.id === card.id) continue;
-    const bounds2 = getCardBounds(other.lat, other.lng, anchors[other.id]);
-    total += getOverlapArea(bounds1, bounds2);
+function getInitialAngle(card) {
+  // Cards on left side of globe → point right (0°)
+  // Cards on right side → point left (180°)
+  // Cards on top → point up (90°)
+  // Cards on bottom → point down (270°)
+  
+  const lngFactor = -card.lng / 180; // -1 to 1, negative lng = positive direction
+  const latFactor = card.lat / 90;   // -1 to 1
+  
+  // Convert to angle, biased by position
+  let angle = Math.atan2(latFactor, lngFactor) * 180 / Math.PI;
+  
+  // Adjust to point outward from crowded center
+  if (card.lng < -30) {
+    angle = card.lat > 0 ? 45 : 315;  // Right side, up or down
+  } else if (card.lng > 30) {
+    angle = card.lat > 0 ? 135 : 225; // Left side, up or down
+  } else {
+    angle = card.lat > 0 ? 90 : 270;  // Center, up or down
   }
-  return total;
+  
+  return angle;
 }
 
 /**
- * Find clusters of nearby cards (for the general positioning algorithm)
+ * Group cards by proximity for localized optimization
  */
-function findClusters(cards, threshold = 15) {
+function findNearbyClusters(cards, threshold = 20) {
   const clusters = [];
   const assigned = new Set();
   
-  for (const card of cards) {
-    if (assigned.has(card.id)) continue;
+  for (let i = 0; i < cards.length; i++) {
+    if (assigned.has(i)) continue;
     
-    const cluster = [];
-    const queue = [card];
-    assigned.add(card.id);
+    const cluster = [i];
+    assigned.add(i);
+    const queue = [i];
     
     while (queue.length > 0) {
       const current = queue.shift();
-      cluster.push(current);
+      const { x: cx, y: cy } = latLngToScreen(cards[current].lat, cards[current].lng);
       
-      for (const other of cards) {
-        if (assigned.has(other.id)) continue;
-        const dist = Math.sqrt(
-          Math.pow(current.lat - other.lat, 2) + 
-          Math.pow(current.lng - other.lng, 2)
-        );
-        if (dist < threshold) {
-          assigned.add(other.id);
-          queue.push(other);
+      for (let j = 0; j < cards.length; j++) {
+        if (assigned.has(j)) continue;
+        
+        const { x: jx, y: jy } = latLngToScreen(cards[j].lat, cards[j].lng);
+        const dist = Math.sqrt((cx - jx) ** 2 + (cy - jy) ** 2);
+        
+        if (dist < threshold * 4) { // Screen distance threshold
+          assigned.add(j);
+          cluster.push(j);
+          queue.push(j);
         }
       }
     }
+    
     clusters.push(cluster);
   }
+  
   return clusters;
 }
 
 /**
- * Assign anchors to cards sharing the same star with fuzzy offset
+ * Main optimization: find best angles for all cards
  */
-function assignSharedStarAnchors(group, anchors, offsets) {
-  const count = group.length;
+function computeCardAngles(cards) {
+  if (!cards || cards.length === 0) return { angles: {}, offsets: {} };
   
-  if (count === 1) {
-    // Single card - position based on hemisphere
-    const card = group[0];
-    const extendRight = card.lng < -30;
-    const extendDown = card.lat > 20;
-    anchors[card.id] = getAnchorExtendingToward(
-      extendRight ? 1 : -1,
-      extendDown ? 1 : -1
-    );
-    offsets[card.id] = { x: 0, y: 0 };
-    return;
-  }
+  console.log('=== Computing card angles (continuous positioning) ===');
   
-  // Multiple cards at same star - spread them to different corners with fuzzy offset
-  const cornerOrder = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
+  const radius = ANCHOR_RADIUS;
+  const cardArray = [...cards];
+  const angles = cardArray.map(c => getInitialAngle(c));
   
-  // Fuzzy offsets for each corner (push cards slightly outward)
-  const cornerOffsets = {
-    'top-left': { x: -FUZZY_OFFSET, y: -FUZZY_OFFSET },
-    'top-right': { x: FUZZY_OFFSET, y: -FUZZY_OFFSET },
-    'bottom-left': { x: -FUZZY_OFFSET, y: FUZZY_OFFSET },
-    'bottom-right': { x: FUZZY_OFFSET, y: FUZZY_OFFSET }
-  };
+  let initialOverlap = calculateTotalOverlap(cardArray, angles, radius);
+  console.log(`Initial overlap: ${initialOverlap.toFixed(0)}`);
   
-  for (let i = 0; i < count; i++) {
-    const card = group[i];
-    const cornerIndex = i % 4;
-    const corner = cornerOrder[cornerIndex];
-    anchors[card.id] = corner;
+  // Find clusters for efficient optimization
+  const clusters = findNearbyClusters(cardArray);
+  console.log(`Found ${clusters.length} clusters`);
+  
+  // Coarse optimization: try angles at 30° intervals
+  const coarseStep = 30;
+  for (let iter = 0; iter < 20; iter++) {
+    let improved = false;
     
-    // Apply fuzzy offset, with extra offset for 5+ cards
-    const extraMultiplier = Math.floor(i / 4) + 1;
-    offsets[card.id] = {
-      x: cornerOffsets[corner].x * extraMultiplier,
-      y: cornerOffsets[corner].y * extraMultiplier
-    };
-  }
-}
-
-/**
- * Initial assignment based on spread from centroid
- */
-function initialAssignment(cards, anchors) {
-  const clusters = findClusters(cards, 18);
-  
-  for (const cluster of clusters) {
-    if (cluster.length === 1) {
-      const card = cluster[0];
-      if (anchors[card.id]) continue; // Already assigned by shared star
-      const extendRight = card.lng < -30;
-      const extendDown = card.lat > 20;
-      anchors[card.id] = getAnchorExtendingToward(
-        extendRight ? 1 : -1,
-        extendDown ? 1 : -1
-      );
-      continue;
-    }
-    
-    let centroidLat = 0, centroidLng = 0;
-    for (const card of cluster) {
-      centroidLat += card.lat;
-      centroidLng += card.lng;
-    }
-    centroidLat /= cluster.length;
-    centroidLng /= cluster.length;
-    
-    for (const card of cluster) {
-      if (anchors[card.id]) continue; // Already assigned by shared star
-      const dx = card.lng - centroidLng;
-      const dy = card.lat - centroidLat;
-      anchors[card.id] = getAnchorExtendingToward(
-        dx >= 0 ? 1 : -1,
-        dy >= 0 ? -1 : 1
-      );
-    }
-  }
-}
-
-/**
- * Iterative single-card improvement
- */
-function improveAnchors(cards, anchors, lockedIds, maxIterations = 10) {
-  let improved = true;
-  let iteration = 0;
-  
-  while (improved && iteration < maxIterations) {
-    improved = false;
-    iteration++;
-    
-    const cardsByOverlap = [...cards].sort((a, b) => {
-      return calculateCardOverlap(b, cards, anchors) - calculateCardOverlap(a, cards, anchors);
-    });
-    
-    for (const card of cardsByOverlap) {
-      // Skip cards that are locked (part of a shared star group)
-      if (lockedIds.has(card.id)) continue;
+    for (const cluster of clusters) {
+      // Sort cluster by overlap (worst first)
+      cluster.sort((a, b) => {
+        const overlapA = calculateCardOverlap(a, angles[a], cardArray, angles, radius);
+        const overlapB = calculateCardOverlap(b, angles[b], cardArray, angles, radius);
+        return overlapB - overlapA;
+      });
       
-      const currentOverlap = calculateCardOverlap(card, cards, anchors);
-      if (currentOverlap === 0) continue;
-      
-      const currentAnchor = anchors[card.id];
-      let bestAnchor = currentAnchor;
-      let bestOverlap = currentOverlap;
-      
-      for (const anchor of CORNERS) {
-        if (anchor === currentAnchor) continue;
+      for (const idx of cluster) {
+        const currentOverlap = calculateCardOverlap(idx, angles[idx], cardArray, angles, radius);
+        if (currentOverlap === 0) continue;
         
-        anchors[card.id] = anchor;
-        const newOverlap = calculateCardOverlap(card, cards, anchors);
+        let bestAngle = angles[idx];
+        let bestOverlap = currentOverlap;
         
-        if (newOverlap < bestOverlap) {
-          bestOverlap = newOverlap;
-          bestAnchor = anchor;
-          improved = true;
+        for (let testAngle = 0; testAngle < 360; testAngle += coarseStep) {
+          const testOverlap = calculateCardOverlap(idx, testAngle, cardArray, angles, radius);
+          if (testOverlap < bestOverlap) {
+            bestOverlap = testOverlap;
+            bestAngle = testAngle;
+            improved = true;
+          }
+        }
+        
+        angles[idx] = bestAngle;
+      }
+    }
+    
+    if (!improved) break;
+  }
+  
+  // Fine optimization: refine with smaller steps
+  const fineSteps = [15, 10, 5, 2];
+  for (const step of fineSteps) {
+    for (let iter = 0; iter < 5; iter++) {
+      let improved = false;
+      
+      for (let idx = 0; idx < cardArray.length; idx++) {
+        const currentOverlap = calculateCardOverlap(idx, angles[idx], cardArray, angles, radius);
+        if (currentOverlap === 0) continue;
+        
+        for (const delta of [-step, step, -step * 2, step * 2]) {
+          const testAngle = (angles[idx] + delta + 360) % 360;
+          const testOverlap = calculateCardOverlap(idx, testAngle, cardArray, angles, radius);
+          
+          if (testOverlap < currentOverlap) {
+            angles[idx] = testAngle;
+            improved = true;
+            break;
+          }
         }
       }
       
-      anchors[card.id] = bestAnchor;
+      if (!improved) break;
     }
   }
   
-  return iteration;
+  const finalOverlap = calculateTotalOverlap(cardArray, angles, radius);
+  console.log(`Final overlap: ${finalOverlap.toFixed(0)} (reduced by ${((1 - finalOverlap / Math.max(1, initialOverlap)) * 100).toFixed(1)}%)`);
+  
+  // Build result object
+  const result = { angles: {}, offsets: {} };
+  for (let i = 0; i < cardArray.length; i++) {
+    const card = cardArray[i];
+    result.angles[card.id] = angles[i];
+    result.offsets[card.id] = { x: 0, y: 0 };
+    
+    const overlap = calculateCardOverlap(i, angles[i], cardArray, angles, radius);
+    console.log(`  ${card.name}: ${angles[i].toFixed(0)}°${overlap > 0 ? ` ⚠️ overlap: ${overlap.toFixed(0)}` : ' ✓'}`);
+  }
+  
+  return result;
 }
-
-/**
- * Main anchor computation with merged stars support
- */
-function computeCardAnchors(cards) {
-  if (!cards || cards.length === 0) return { anchors: {}, offsets: {} };
-  
-  console.log('=== Computing card anchors (with merged stars) ===');
-  
-  const anchors = {};
-  const offsets = {};
-  const lockedIds = new Set();
-  
-  // Step 1: Group cards by location (same star)
-  const locationGroups = groupCardsByLocation(cards, 0.5);
-  console.log(`Found ${locationGroups.length} unique star locations from ${cards.length} cards`);
-  
-  // Step 2: Assign anchors for shared-star groups (with fuzzy offsets)
-  for (const group of locationGroups) {
-    if (group.length > 1) {
-      console.log(`Merged star: ${group.map(c => c.name).join(', ')}`);
-      assignSharedStarAnchors(group, anchors, offsets);
-      // Lock these cards - don't change their anchors in optimization
-      group.forEach(card => lockedIds.add(card.id));
-    } else {
-      offsets[group[0].id] = { x: 0, y: 0 };
-    }
-  }
-  
-  // Step 3: Initial assignment for non-shared cards
-  initialAssignment(cards, anchors);
-  
-  // Fill in any missing anchors
-  for (const card of cards) {
-    if (!anchors[card.id]) {
-      anchors[card.id] = 'top-left';
-    }
-    if (!offsets[card.id]) {
-      offsets[card.id] = { x: 0, y: 0 };
-    }
-  }
-  
-  let overlap = calculateTotalOverlap(cards, anchors);
-  console.log(`Initial overlap: ${overlap.toFixed(0)}`);
-  
-  // Step 4: Optimize non-locked cards
-  const iterations = improveAnchors(cards, anchors, lockedIds, 15);
-  overlap = calculateTotalOverlap(cards, anchors);
-  console.log(`After ${iterations} iterations: overlap = ${overlap.toFixed(0)}`);
-  
-  // Log final
-  console.log('Final anchors:');
-  for (const card of cards) {
-    const cardOverlap = calculateCardOverlap(card, cards, anchors);
-    const offset = offsets[card.id];
-    const offsetStr = (offset.x !== 0 || offset.y !== 0) ? ` [offset: ${offset.x},${offset.y}]` : '';
-    console.log(`  ${card.name}: "${anchors[card.id]}"${offsetStr}${cardOverlap > 0 ? ` ⚠️ overlap: ${cardOverlap.toFixed(0)}` : ' ✓'}`);
-  }
-  
-  return { anchors, offsets };
-}
-
 
 function App() {
   const [currentPage, setCurrentPage] = useState('globe');
@@ -352,8 +290,7 @@ function App() {
   const [visibleCardIds, setVisibleCardIds] = useState(null);
   
   // Compute anchors and offsets
-  const { anchors: cardAnchors, offsets: cardOffsets } = useMemo(() => computeCardAnchors(cards), [cards]);
-  
+  const { angles: cardAngles, offsets: cardOffsets } = useMemo(() => computeCardAngles(cards), [cards]);  
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const isEmbedMode = urlParams.get('embed') === 'true';
   const embedGroupId = urlParams.get('group');
@@ -540,11 +477,11 @@ function App() {
         )}
 
         {selectedCardObjects.map((card, index) => (
-          <PopupCard
+            <PopupCard
             key={card.id}
             card={card}
             visibilityData={markerVisibility}
-            anchor={cardAnchors[card.id] || 'top-left'}
+            angle={cardAngles[card.id] ?? 45}
             offset={cardOffsets[card.id] || { x: 0, y: 0 }}
             onClose={handleClosePopup}
             onFocus={handleFocusCard}

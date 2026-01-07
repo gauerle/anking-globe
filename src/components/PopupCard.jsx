@@ -4,56 +4,61 @@ import { getImageUrl } from '../utils/api';
 const CARD_WIDTH = 220;
 const CARD_HEIGHT = 58;
 const COMPACT_SIZE = 56;
+const ANCHOR_RADIUS = 8;
 
-// Distance-based threshold for compact mode
 const COMPACT_DISTANCE = 280;
 
-function calculatePosition(anchor, starX, starY, isCompact, offset = { x: 0, y: 0 }) {
+/**
+ * Calculate card position from angle
+ * Card corner sits on circumference, card extends outward
+ */
+function calculatePositionFromAngle(starX, starY, angleDeg, isCompact, offset = { x: 0, y: 0 }) {
   const width = isCompact ? COMPACT_SIZE : CARD_WIDTH;
   const height = isCompact ? COMPACT_SIZE : CARD_HEIGHT;
+  const radius = ANCHOR_RADIUS;
+  
+  const angleRad = angleDeg * Math.PI / 180;
+  const anchorX = starX + radius * Math.cos(angleRad);
+  const anchorY = starY - radius * Math.sin(angleRad);
+  
+  const normalizedAngle = ((angleDeg % 360) + 360) % 360;
   
   let left, top, originX, originY;
   
-  switch (anchor) {
-    case 'top-left':
-      left = starX;
-      top = starY;
-      originX = 'left';
-      originY = 'top';
-      break;
-    case 'top-right':
-      left = starX - width;
-      top = starY;
-      originX = 'right';
-      originY = 'top';
-      break;
-    case 'bottom-left':
-      left = starX;
-      top = starY - height;
-      originX = 'left';
-      originY = 'bottom';
-      break;
-    case 'bottom-right':
-      left = starX - width;
-      top = starY - height;
-      originX = 'right';
-      originY = 'bottom';
-      break;
-    default:
-      left = starX;
-      top = starY;
-      originX = 'left';
-      originY = 'top';
+  if (normalizedAngle >= 315 || normalizedAngle < 45) {
+    // Right side: card extends right
+    left = anchorX;
+    top = anchorY - height / 2;
+    originX = 'left';
+    originY = 'center';
+  } else if (normalizedAngle >= 45 && normalizedAngle < 135) {
+    // Top side: card extends up
+    left = anchorX - width / 2;
+    top = anchorY - height;
+    originX = 'center';
+    originY = 'bottom';
+  } else if (normalizedAngle >= 135 && normalizedAngle < 225) {
+    // Left side: card extends left
+    left = anchorX - width;
+    top = anchorY - height / 2;
+    originX = 'right';
+    originY = 'center';
+  } else {
+    // Bottom side: card extends down
+    left = anchorX - width / 2;
+    top = anchorY;
+    originX = 'center';
+    originY = 'top';
   }
   
-  // Apply fuzzy offset
+  // Apply offset
   left += offset.x;
   top += offset.y;
   
   return { left, top, originX, originY };
 }
 
-const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset, onClose, onFocus, isFocused, zIndex }) {
+const PopupCard = memo(function PopupCard({ card, visibilityData, angle, offset, onClose, onFocus, isFocused, zIndex }) {
   const [isHovered, setIsHovered] = useState(false);
   
   const data = visibilityData?.[card.id];
@@ -65,8 +70,6 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
   const { screenPos, scale, opacity } = data;
   
   const rawScale = Math.max(0.5, Math.min(1.5, scale));
-  
-  // Convert scale to distance for threshold check
   const approxDistance = 220 / rawScale;
   const isCompact = approxDistance > COMPACT_DISTANCE && !isFocused;
   
@@ -79,7 +82,13 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
   let finalScale = rawScale * baseScale * focusBoost * hoverBoost;
   finalScale = Math.max(minScale, Math.min(maxScale, finalScale));
   
-  const pos = calculatePosition(anchor, screenPos.x, screenPos.y, isCompact, offset || { x: 0, y: 0 });
+  const pos = calculatePositionFromAngle(
+    screenPos.x, 
+    screenPos.y, 
+    angle, 
+    isCompact, 
+    offset || { x: 0, y: 0 }
+  );
   
   let computedZIndex = zIndex || 1000;
   if (isFocused) computedZIndex = 2000;
@@ -87,7 +96,7 @@ const PopupCard = memo(function PopupCard({ card, visibilityData, anchor, offset
 
   const transformOrigin = `${pos.originX} ${pos.originY}`;
   
-  const infoText = [card.title, card.university].filter(Boolean).join(' Â· ');
+  const infoText = [card.title, card.university].filter(Boolean).join(' · ');
 
   return (
     <div 
